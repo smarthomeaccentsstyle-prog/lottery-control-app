@@ -9,12 +9,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "start:lan": "HOST=0.0.0.0 react-scripts start",
-    "start:prod": "NODE_ENV=production node server/index.js",
-    "server": "node server/index.js",
-    "server:lan": "HOST=0.0.0.0 node server/index.js",
-    "network-info": "node scripts/network-info.js",
+    "start": "node server/index.js",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
