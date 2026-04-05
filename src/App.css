@@ -1,4 +1,6 @@
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -6,14 +8,26 @@
   color-scheme: dark;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
 body {
   margin: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   background:
     radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 28%),
     linear-gradient(180deg, #080d18 0%, #0c1322 100%);
   color: #eef4ff;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior-x: none;
 }
 
 button,
@@ -21,11 +35,25 @@ input,
 select,
 textarea {
   font: inherit;
+  max-width: 100%;
+}
+
+img,
+svg,
+canvas,
+video {
+  display: block;
+  max-width: 100%;
 }
 
 .app {
-  min-height: 100vh;
-  padding: 24px;
+  min-height: 100dvh;
+  padding:
+    calc(24px + env(safe-area-inset-top))
+    calc(24px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom))
+    calc(24px + env(safe-area-inset-left));
+  overflow-x: clip;
 }
 
 .container {
@@ -55,7 +83,7 @@ textarea {
 
 .hero h1 {
   margin: 0;
-  font-size: 46px;
+  font-size: clamp(2rem, 5vw, 2.875rem);
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -73,6 +101,7 @@ textarea {
   border: 1px solid rgba(53, 72, 106, 0.8);
   color: #e7efff;
   font-weight: 700;
+  font-size: clamp(0.82rem, 2vw, 0.95rem);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
@@ -105,7 +134,7 @@ textarea {
 
 .summary-card strong {
   display: block;
-  font-size: 30px;
+  font-size: clamp(1.5rem, 3vw, 1.875rem);
   font-weight: 800;
   color: #f8fbff;
   margin-bottom: 10px;
@@ -134,14 +163,16 @@ textarea {
 }
 
 .tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
-  flex-wrap: wrap;
+  width: 100%;
 }
 
 .tab {
   min-height: 44px;
-  min-width: 124px;
+  min-width: 0;
+  width: 100%;
   border-radius: 14px;
   border: 1px solid rgba(36, 50, 78, 0.92);
   background: rgba(16, 23, 38, 0.98);
@@ -170,6 +201,9 @@ button {
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 14px 28px rgba(45, 99, 234, 0.24);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .outline-btn {
@@ -194,7 +228,7 @@ button {
 
 .section-header h2 {
   margin: 0;
-  font-size: 30px;
+  font-size: clamp(1.5rem, 3.6vw, 1.875rem);
   font-weight: 800;
 }
 
@@ -209,6 +243,12 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.95fr);
   gap: 18px;
+}
+
+.ticket-save-card {
+  position: sticky;
+  top: 24px;
+  align-self: start;
 }
 
 .admin-shell {
@@ -228,7 +268,7 @@ button {
 
 .admin-brand h1 {
   margin: 10px 0 8px;
-  font-size: 32px;
+  font-size: clamp(1.625rem, 3.8vw, 2rem);
   font-weight: 800;
 }
 
@@ -305,7 +345,7 @@ button {
 .seller-dashboard-hero h3 {
   margin: 0 0 8px;
   color: #f8fbff;
-  font-size: 26px;
+  font-size: clamp(1.375rem, 3vw, 1.625rem);
 }
 
 .seller-dashboard-meta {
@@ -533,7 +573,7 @@ textarea::placeholder {
 }
 
 .panel-title-row strong {
-  font-size: 18px;
+  font-size: clamp(1rem, 2.4vw, 1.125rem);
   color: #f8fbff;
 }
 
@@ -580,7 +620,7 @@ textarea::placeholder {
   padding: 10px 12px;
   text-align: center;
   background: rgba(18, 29, 48, 0.98);
-  font-size: 18px;
+  font-size: clamp(1rem, 2.5vw, 1.125rem);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -591,6 +631,7 @@ textarea::placeholder {
 
 .bulk-textarea {
   margin-bottom: 10px;
+  min-height: 132px;
 }
 
 .booking-banner {
@@ -694,7 +735,7 @@ textarea::placeholder {
 .mini-box strong,
 .preview-box strong {
   color: #f8fbff;
-  font-size: 22px;
+  font-size: clamp(1.125rem, 3vw, 1.375rem);
   font-weight: 800;
 }
 
@@ -710,11 +751,19 @@ textarea::placeholder {
   flex-wrap: wrap;
 }
 
+.ticket-save-actions {
+  margin-bottom: 16px;
+}
+
 .entered-list {
   background: rgba(15, 22, 36, 0.96);
   border: 1px solid rgba(29, 40, 64, 0.92);
   border-radius: 16px;
   padding: 16px;
+}
+
+.ticket-entered-list {
+  scroll-margin-bottom: 96px;
 }
 
 .ticket-format {
@@ -860,6 +909,46 @@ textarea::placeholder {
 
 .saved-right {
   text-align: right;
+}
+
+.app,
+.container,
+.hero,
+.hero-row,
+.hero-actions,
+.glass-card,
+.glass-panel,
+.summary-card,
+.saved-ticket,
+.entered-list,
+.booking-banner,
+.editing-banner,
+.mini-box,
+.preview-box,
+.result-card,
+.workspace-grid,
+.admin-shell,
+.admin-content,
+.input-layout,
+.ticket-list,
+.section-header,
+.section-header > *,
+.panel-title-row,
+.panel-title-row > *,
+.saved-top > *,
+.result-card-top > * {
+  min-width: 0;
+}
+
+.hero p,
+.section-header span,
+.saved-top span,
+.saved-line,
+.saved-right span,
+.seller-dashboard-meta,
+.booking-banner span,
+.editing-banner span {
+  overflow-wrap: anywhere;
 }
 
 .status-pill {
@@ -1031,62 +1120,97 @@ textarea::placeholder {
     grid-template-columns: 1fr;
   }
 
+  .ticket-save-card {
+    position: static;
+  }
+
   .admin-summary-grid,
+  .admin-workspace-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .admin-highlight-grid,
   .admin-insight-grid,
-  .admin-risk-grid,
-  .dense-risk-grid,
-  .admin-workspace-grid,
   .report-range-grid,
   .result-grid,
   .report-panels {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-risk-grid,
+  .dense-risk-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .app {
-    padding: 18px;
+    padding:
+      calc(16px + env(safe-area-inset-top))
+      calc(16px + env(safe-area-inset-right))
+      calc(20px + env(safe-area-inset-bottom))
+      calc(16px + env(safe-area-inset-left));
   }
 
   .hero-row,
   .hero-actions,
   .section-header,
   .saved-top,
-  .seller-dashboard-hero {
+  .seller-dashboard-hero,
+  .panel-title-row,
+  .result-card-top,
+  .report-row,
+  .report-slot-row {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hero-actions,
+  .saved-right {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .hero-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .top-summary,
+  .mini-summary,
+  .admin-summary-grid,
+  .admin-highlight-grid,
+  .admin-workspace-grid,
+  .status-guide,
+  .preview-grid,
+  .report-range-grid,
+  .result-grid,
+  .report-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .form-row.three,
   .input-layout,
-  .mini-summary,
-  .admin-summary-grid,
-  .admin-highlight-grid,
   .admin-insight-grid,
   .admin-risk-grid,
-  .dense-risk-grid,
-  .admin-workspace-grid,
-  .status-guide,
-  .preview-grid,
-  .top-summary,
-  .report-range-grid,
-  .result-grid,
-  .report-panels {
+  .dense-risk-grid {
     grid-template-columns: 1fr;
-  }
-
-  .single-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .admin-sidebar {
     position: static;
   }
 
-  .result-card-top,
-  .report-row,
-  .report-slot-row {
-    flex-direction: column;
+  .tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action-bar,
+  .footer-actions,
+  .inline-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .today-chip {
@@ -1096,5 +1220,157 @@ textarea::placeholder {
 
   .seller-dashboard-tags {
     justify-content: flex-start;
+  }
+
+  .ticket-save-card {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .ticket-save-actions {
+    position: sticky;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    z-index: 8;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 10px;
+    border-radius: 16px;
+    background: rgba(12, 19, 34, 0.92);
+    border: 1px solid rgba(36, 50, 78, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .single-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .single-box {
+    padding: 8px;
+    border-radius: 14px;
+  }
+
+  .single-box span {
+    width: 28px;
+    height: 28px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    font-size: 14px;
+  }
+
+  .single-box input {
+    min-height: 40px;
+    padding: 8px 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app {
+    padding:
+      calc(12px + env(safe-area-inset-top))
+      calc(12px + env(safe-area-inset-right))
+      calc(18px + env(safe-area-inset-bottom))
+      calc(12px + env(safe-area-inset-left));
+  }
+
+  .hero p,
+  .section-header span,
+  .saved-top span,
+  .saved-line,
+  .report-row span,
+  .report-slot-row span {
+    font-size: 12px;
+  }
+
+  .top-summary,
+  .mini-summary,
+  .admin-summary-grid,
+  .status-guide,
+  .preview-grid,
+  .report-range-grid,
+  .admin-highlight-grid,
+  .result-grid,
+  .report-panels,
+  .admin-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .tab,
+  button {
+    min-height: 42px;
+    padding: 10px 14px;
+  }
+
+  .admin-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-menu-btn,
+  .admin-logout {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .glass-card,
+  .glass-panel,
+  .summary-card,
+  .saved-ticket,
+  .entered-list,
+  .booking-banner,
+  .editing-banner,
+  .result-card,
+  .mini-box,
+  .preview-box {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .single-grid {
+    gap: 6px;
+  }
+
+  .single-box {
+    padding: 7px;
+  }
+
+  .single-box span {
+    width: 26px;
+    height: 26px;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+
+  .single-box input {
+    min-height: 36px;
+    padding: 6px 4px;
+    font-size: 16px;
+    border-radius: 12px;
+  }
+
+  .ticket-format-grid {
+    gap: 6px 8px;
+  }
+
+  .ticket-format-cell,
+  .ticket-juri-line {
+    min-height: 34px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .ticket-print-preview pre {
+    padding: 12px;
+    font-size: 12px;
+  }
+
+  .ticket-save-actions {
+    grid-template-columns: 1fr;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    padding: 8px;
   }
 }

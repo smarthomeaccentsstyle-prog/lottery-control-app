@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 import { load, save } from "./untils/storage.js";
@@ -89,9 +89,13 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [reportRange, setReportRange] = useState("Daily");
   const [resultDate, setResultDate] = useState(getTodayString());
   const [resultDrafts, setResultDrafts] = useState(emptyResultDrafts);
-  const [dataSyncing, setDataSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [reportSummaryMap, setReportSummaryMap] = useState(() => buildEmptyReportSummaryMap());
+  const sellerSyncRef = useRef({
+    ticketsSignature: buildSyncSignature(normalizeTickets(persisted.tickets)),
+    resultsSignature: buildSyncSignature(persisted.winResults || {}),
+    queued: null,
+  });
   const todayString = getTodayString();
   const activeTickets = useMemo(
     () => tickets.filter((ticket) => !ticket.cancelled),
@@ -115,33 +119,125 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setResultDrafts(buildResultDraftMap("", resultDate, winResults));
   }, [resultDate, winResults]);
 
-  const syncSellerData = useCallback(async () => {
+  const canApplySellerSyncNow = useCallback(
+    (forceApply = false) => {
+      if (forceApply || activeTab !== "New Ticket") {
+        return true;
+      }
+
+      if (typeof document === "undefined") {
+        return true;
+      }
+
+      const activeElement = document.activeElement;
+
+      if (!activeElement) {
+        return true;
+      }
+
+      return !["INPUT", "TEXTAREA", "SELECT"].includes(activeElement.tagName);
+    },
+    [activeTab]
+  );
+
+  const flushQueuedSellerSync = useCallback(
+    (forceApply = false) => {
+      const queued = sellerSyncRef.current.queued;
+
+      if (!queued || !canApplySellerSyncNow(forceApply)) {
+        return;
+      }
+
+      sellerSyncRef.current = {
+        ticketsSignature: queued.ticketsSignature,
+        resultsSignature: queued.resultsSignature,
+        queued: null,
+      };
+      setTickets(queued.tickets);
+      setWinResults(queued.winResults);
+    },
+    [canApplySellerSyncNow]
+  );
+
+  const applySellerSyncPayload = useCallback(
+    (nextTickets, nextWinResults, forceApply = false) => {
+      const ticketsSignature = buildSyncSignature(nextTickets);
+      const resultsSignature = buildSyncSignature(nextWinResults);
+
+      if (
+        sellerSyncRef.current.ticketsSignature === ticketsSignature &&
+        sellerSyncRef.current.resultsSignature === resultsSignature
+      ) {
+        sellerSyncRef.current.queued = null;
+        return;
+      }
+
+      if (!canApplySellerSyncNow(forceApply)) {
+        sellerSyncRef.current.queued = {
+          tickets: nextTickets,
+          winResults: nextWinResults,
+          ticketsSignature,
+          resultsSignature,
+        };
+        return;
+      }
+
+      sellerSyncRef.current = {
+        ticketsSignature,
+        resultsSignature,
+        queued: null,
+      };
+      setTickets(nextTickets);
+      setWinResults(nextWinResults);
+    },
+    [canApplySellerSyncNow]
+  );
+
+  const syncSellerData = useCallback(async ({ forceApply = false } = {}) => {
     if (!session || !session.username) {
       return;
     }
 
     try {
-      setDataSyncing(true);
       const [ticketsResponse, resultsResponse] = await Promise.all([
         fetchTicketsApi({ sellerUsername: session.username }),
         fetchResultsApi(),
       ]);
 
-      setTickets(normalizeTickets(ticketsResponse.tickets || []));
-      setWinResults(mapResultsToLookup(resultsResponse.results || []));
+      applySellerSyncPayload(
+        normalizeTickets(ticketsResponse.tickets || []),
+        mapResultsToLookup(resultsResponse.results || []),
+        forceApply
+      );
       setSyncMessage("");
     } catch (error) {
       setSyncMessage(error.message || "Backend sync failed");
-    } finally {
-      setDataSyncing(false);
     }
-  }, [session]);
+  }, [applySellerSyncPayload, session]);
+
+  useEffect(() => {
+    flushQueuedSellerSync();
+  }, [activeTab, flushQueuedSellerSync]);
+
+  useEffect(() => {
+    const handleFocusChange = () => {
+      flushQueuedSellerSync();
+    };
+
+    window.addEventListener("focusout", handleFocusChange);
+    window.addEventListener("pointerup", handleFocusChange);
+
+    return () => {
+      window.removeEventListener("focusout", handleFocusChange);
+      window.removeEventListener("pointerup", handleFocusChange);
+    };
+  }, [flushQueuedSellerSync]);
 
   useEffect(() => {
     let active = true;
 
     const syncLoop = async () => {
-      if (!active) {
+      if (!active || (typeof document !== "undefined" && document.hidden)) {
         return;
       }
 
@@ -149,7 +245,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     };
 
     syncLoop();
-    const intervalId = window.setInterval(syncLoop, 4000);
+    const intervalId = window.setInterval(syncLoop, 8000);
 
     return () => {
       active = false;
@@ -433,7 +529,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       }
     }
 
-    await syncSellerData();
+    await syncSellerData({ forceApply: true });
     clearForm();
     setActiveTab("Ticket Store");
   };
@@ -454,7 +550,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         drawTime: slot,
         winningNumber: normalized,
       });
-      await syncSellerData();
+      await syncSellerData({ forceApply: true });
     } catch (error) {
       window.alert(error.message || "Save win number failed");
     }
@@ -466,7 +562,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         date: resultDate,
         drawTime: slot,
       });
-      await syncSellerData();
+      await syncSellerData({ forceApply: true });
       setResultDrafts((current) => ({ ...current, [slot]: "" }));
     } catch (error) {
       window.alert(error.message || "Clear win number failed");
@@ -510,7 +606,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         winningNumber: resultInfo.winningNumber,
       });
       window.alert(`Payout ₹${resultInfo.payout}`);
-      await syncSellerData();
+      await syncSellerData({ forceApply: true });
     } catch (error) {
       window.alert(error.message || "Claim update failed");
     }
@@ -570,7 +666,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         cancelled: true,
         cancelledAt: new Date().toISOString(),
       });
-      await syncSellerData();
+      await syncSellerData({ forceApply: true });
     } catch (error) {
       window.alert(error.message || "Cancel failed");
       return;
@@ -624,7 +720,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 <div className="today-chip">Seller: {session.username}</div>
               ) : null}
               <div className="today-chip">Today: {todayString}</div>
-              {dataSyncing ? <div className="today-chip">Syncing...</div> : null}
               {syncMessage ? <div className="today-chip">{syncMessage}</div> : null}
               {onLogout ? (
                 <button className="outline-btn hero-logout" onClick={onLogout}>
@@ -721,8 +816,8 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         )}
 
         {activeTab === "New Ticket" && (
-          <div className="workspace-grid">
-            <div className="glass-card">
+          <div className="workspace-grid ticket-workspace-grid">
+            <div className="glass-card ticket-entry-card">
               <div className="section-header">
                 <h2>{editingTicketId ? "Edit Ticket" : "Create New Ticket"}</h2>
                 <span>
@@ -836,7 +931,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               </div>
             </div>
 
-            <div className="glass-card">
+            <div className="glass-card ticket-save-card">
               <div className="section-header">
                 <h2>Payment and Save</h2>
                 <span>Select payment mode and save the ticket.</span>
@@ -868,7 +963,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 <PreviewBox label="Due" value={formatCurrency(currentDue)} />
               </div>
 
-              <div className="footer-actions">
+              <div className="footer-actions ticket-save-actions">
                 <button onClick={createTicket}>
                   {editingTicketId ? "Update Ticket" : "Save Ticket"}
                 </button>
@@ -877,7 +972,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 </button>
               </div>
 
-              <div className="entered-list">
+              <div className="entered-list ticket-entered-list">
                 <div className="panel-title-row">
                   <strong>Entered Items</strong>
                   <span>{previewItems.length} item(s)</span>
@@ -1813,6 +1908,14 @@ function buildEmptyReportSummaryMap() {
     accumulator[range] = emptyReportMetrics();
     return accumulator;
   }, {});
+}
+
+function buildSyncSignature(value) {
+  try {
+    return JSON.stringify(value || null);
+  } catch {
+    return "";
+  }
 }
 
 function isDateInRange(dateString, range, today) {
