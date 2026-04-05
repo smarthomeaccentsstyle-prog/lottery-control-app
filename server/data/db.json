@@ -1,0 +1,32 @@
+{
+  "admin": {
+    "username": "admin",
+    "password": "1234"
+  },
+  "sellers": [
+    {
+      "id": 1,
+      "name": "Seller One",
+      "mobile": "",
+      "username": "seller1",
+      "password": "1234",
+      "active": true,
+      "singleCommission": 0.9,
+      "juriCommission": 2.65
+    }
+  ],
+  "tickets": [],
+  "results": [],
+  "settings": {
+    "commission": {
+      "single": 0.9,
+      "juri": 2.65
+    },
+    "rates": {
+      "singleSell": 11,
+      "singlePayout": 100,
+      "juriSell": 10,
+      "juriPayout": 600
+    }
+  }
+}
