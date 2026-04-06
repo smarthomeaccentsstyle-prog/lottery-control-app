@@ -10,6 +10,9 @@
   },
   "scripts": {
     "start": "node server/index.js",
+    "start:prod": "node server/index.js",
+    "server": "node server/index.js",
+    "network-info": "node scripts/network-info.js",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

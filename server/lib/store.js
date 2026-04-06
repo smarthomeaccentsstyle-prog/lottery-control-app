@@ -4,13 +4,14 @@ const path = require("path");
 const { DEFAULT_DB, normalizeSeller, normalizeTicket } = require("./models");
 
 const DEFAULT_DATA_DIR = path.join(__dirname, "..", "data");
-const DATA_DIR = process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || DEFAULT_DATA_DIR;
-const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, "db.json");
+const CONFIGURED_DATA_DIR =
+  process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || DEFAULT_DATA_DIR;
+const CONFIGURED_DB_FILE = process.env.DB_FILE || path.join(CONFIGURED_DATA_DIR, "db.json");
+const DB_FILE = resolveDbFilePath(CONFIGURED_DB_FILE);
+const DATA_DIR = path.dirname(DB_FILE);
 
 function ensureDbFile() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+  ensureDirectory(DATA_DIR);
 
   if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2));
@@ -45,6 +46,22 @@ function writeDb(db) {
   ensureDbFile();
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
   return db;
+}
+
+function resolveDbFilePath(configuredPath) {
+  try {
+    if (fs.existsSync(configuredPath) && fs.statSync(configuredPath).isDirectory()) {
+      return path.join(configuredPath, "db.json");
+    }
+  } catch {}
+
+  return configuredPath;
+}
+
+function ensureDirectory(directoryPath) {
+  if (!fs.existsSync(directoryPath)) {
+    fs.mkdirSync(directoryPath, { recursive: true });
+  }
 }
 
 function updateDb(updater) {
