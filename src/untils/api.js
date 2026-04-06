@@ -1,4 +1,12 @@
+import { PANEL_SESSION_KEY } from "./adminStorage.js";
+import { load } from "./storage.js";
+
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || resolveApiBaseUrl();
+const REQUEST_TIMEOUT_MS = 6000;
+export const AUTH_EXPIRED_EVENT = "lottery-auth-expired";
+
+export const BACKEND_UNAVAILABLE_MESSAGE = "Unable to reach the backend server.";
+export const BACKEND_TIMEOUT_MESSAGE = "The backend took too long to respond.";
 
 export async function fetchBootstrap() {
   const response = await apiRequest("/bootstrap");
@@ -9,6 +17,20 @@ export async function loginApi(payload) {
   const response = await apiRequest("/auth/login", {
     method: "POST",
     body: payload,
+    suppressAuthFailureEvent: true,
+  });
+  return response;
+}
+
+export async function verifySessionApi() {
+  const response = await apiRequest("/auth/session");
+  return response;
+}
+
+export async function logoutApi() {
+  const response = await apiRequest("/auth/logout", {
+    method: "POST",
+    suppressAuthFailureEvent: true,
   });
   return response;
 }
@@ -102,14 +124,40 @@ export async function updateSellerApi(id, payload) {
 }
 
 async function apiRequest(pathname, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${pathname}`, {
-    method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  const controller =
+    typeof AbortController === "function" ? new AbortController() : null;
+  let timeoutId = null;
+
+  if (controller && typeof globalThis.setTimeout === "function") {
+    timeoutId = globalThis.setTimeout(() => {
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+  }
+
+  let response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${pathname}`, {
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders(),
+        ...(options.headers || {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller ? controller.signal : undefined,
+    });
+  } catch (error) {
+    if (error && error.name === "AbortError") {
+      throw new Error(BACKEND_TIMEOUT_MESSAGE);
+    }
+
+    throw new Error(BACKEND_UNAVAILABLE_MESSAGE);
+  } finally {
+    if (timeoutId !== null && typeof globalThis.clearTimeout === "function") {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
 
   let payload = {};
 
@@ -118,7 +166,15 @@ async function apiRequest(pathname, options = {}) {
   } catch {}
 
   if (!response.ok) {
-    throw new Error(payload.message || "API request failed");
+    const error = new Error(payload.message || "API request failed");
+    error.status = response.status;
+
+    if (response.status === 401 && !options.suppressAuthFailureEvent) {
+      clearStoredSession();
+      dispatchAuthExpired(error.message);
+    }
+
+    throw error;
   }
 
   return payload;
@@ -151,6 +207,37 @@ export function mapResultsToLookup(results = []) {
 }
 
 export { API_BASE_URL };
+
+function getAuthHeaders() {
+  const session = load(PANEL_SESSION_KEY, null);
+  const token = session && session.token ? session.token : "";
+
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function clearStoredSession() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(PANEL_SESSION_KEY);
+  } catch {}
+}
+
+function dispatchAuthExpired(message) {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") {
+    return;
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent(AUTH_EXPIRED_EVENT, {
+        detail: { message },
+      })
+    );
+  } catch {}
+}
 
 function resolveApiBaseUrl() {
   if (typeof window === "undefined" || !window.location) {

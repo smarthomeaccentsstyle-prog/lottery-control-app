@@ -5,18 +5,13 @@ export const SELLER_PANEL_STORAGE_KEY = "seller-panel-state-v3";
 export const PANEL_SESSION_KEY = "lottery-panel-session-v1";
 export const SELLER_LIST_KEY = "lottery-sellers-v1";
 
-export const DEFAULT_ADMIN_CREDENTIALS = {
-  username: "admin",
-  password: "1234",
-};
-
 export const DEFAULT_SELLERS = [
   {
     id: 1,
     name: "Seller One",
     mobile: "",
     username: "seller1",
-    password: "1234",
+    password: "",
     active: true,
     singleCommission: DEFAULT_COMMISSION.single,
     juriCommission: DEFAULT_COMMISSION.juri,
@@ -35,7 +30,7 @@ export function getStoredSellers() {
     name: seller && seller.name ? seller.name : `Seller ${index + 1}`,
     mobile: seller && seller.mobile ? seller.mobile : "",
     username: seller && seller.username ? seller.username : `seller${index + 1}`,
-    password: seller && seller.password ? seller.password : "1234",
+    password: seller && typeof seller.password === "string" ? seller.password : "",
     active: seller && seller.active !== undefined ? Boolean(seller.active) : true,
     singleCommission:
       seller && typeof seller.singleCommission === "number" && !Number.isNaN(seller.singleCommission)

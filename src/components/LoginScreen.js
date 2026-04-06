@@ -1,11 +1,11 @@
 export default function LoginScreen({
   role,
-  setRole,
   username,
   setUsername,
   password,
   setPassword,
   onLogin,
+  onRetry,
   loading = false,
   statusMessage = "",
 }) {
@@ -23,23 +23,6 @@ export default function LoginScreen({
             : "Enter seller username and password to continue selling tickets from any device."}
         </p>
 
-        <div className="login-role-toggle">
-          <button
-            type="button"
-            className={`login-role-btn ${!isAdmin ? "active" : ""}`}
-            onClick={() => setRole("seller")}
-          >
-            Seller
-          </button>
-          <button
-            type="button"
-            className={`login-role-btn ${isAdmin ? "active" : ""}`}
-            onClick={() => setRole("admin")}
-          >
-            Admin
-          </button>
-        </div>
-
         <form
           className="login-field-grid"
           onSubmit={(event) => {
@@ -52,6 +35,7 @@ export default function LoginScreen({
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             autoComplete="username"
+            disabled={loading}
           />
 
           <input
@@ -60,6 +44,7 @@ export default function LoginScreen({
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
+            disabled={loading}
           />
 
           <button
@@ -72,12 +57,20 @@ export default function LoginScreen({
         </form>
 
         {statusMessage ? (
-          <div className="login-status">{statusMessage}</div>
+          <div className="login-status">
+            <span>{statusMessage}</span>
+            {onRetry ? (
+              <button
+                type="button"
+                className="outline-btn login-retry-btn"
+                onClick={onRetry}
+                disabled={loading}
+              >
+                {loading ? "Checking..." : "Retry"}
+              </button>
+            ) : null}
+          </div>
         ) : null}
-
-        <div className="login-demo">
-          {isAdmin ? "Demo: admin / 1234" : "Demo: seller1 / 1234"}
-        </div>
       </div>
     </div>
   );

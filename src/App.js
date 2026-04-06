@@ -3,15 +3,18 @@ import "./App.css";
 
 import { load, save } from "./untils/storage.js";
 import {
-  clearResultApi,
+  AUTH_EXPIRED_EVENT,
+  BACKEND_TIMEOUT_MESSAGE,
+  BACKEND_UNAVAILABLE_MESSAGE,
   fetchBootstrap,
   fetchResultsApi,
   fetchReportSummaryApi,
   fetchSellersApi,
   fetchTicketsApi,
   loginApi,
+  logoutApi,
   mapResultsToLookup,
-  saveResultApi,
+  verifySessionApi,
   createTicketApi,
   updateTicketApi,
 } from "./untils/api.js";
@@ -67,7 +70,6 @@ const mobileNewTicketSections = [
 ];
 
 const emptySingle = () => Array(10).fill("");
-const emptyResultDrafts = () => buildResultDraftMap("");
 
 function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const persisted = useMemo(
@@ -104,7 +106,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [ticketFilter, setTicketFilter] = useState("ALL");
   const [reportRange, setReportRange] = useState("Daily");
   const [resultDate, setResultDate] = useState(getTodayString());
-  const [resultDrafts, setResultDrafts] = useState(emptyResultDrafts);
   const [syncMessage, setSyncMessage] = useState("");
   const [reportSummaryMap, setReportSummaryMap] = useState(() => buildEmptyReportSummaryMap());
   const [mobileTicketSection, setMobileTicketSection] = useState("details");
@@ -137,10 +138,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       paidAmount,
     });
   }, [tickets, winResults, customerName, customerPhone, date, drawTime, paymentMode, paidAmount]);
-
-  useEffect(() => {
-    setResultDrafts(buildResultDraftMap("", resultDate, winResults));
-  }, [resultDate, winResults]);
 
   useEffect(() => {
     if (activeTab !== "New Ticket") {
@@ -600,41 +597,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     await syncSellerData({ forceApply: true });
     clearForm();
     setActiveTab("Ticket Store");
-  };
-
-  const saveWinNumber = async (slot) => {
-    const rawValue = (resultDrafts[slot] || "").replace(/[^\d]/g, "").slice(0, 2);
-
-    if (rawValue.length !== 2) {
-      window.alert("Enter a valid 2 digit winning number");
-      return;
-    }
-
-    const normalized = leftPad(rawValue, 2, "0");
-
-    try {
-      await saveResultApi({
-        date: resultDate,
-        drawTime: slot,
-        winningNumber: normalized,
-      });
-      await syncSellerData({ forceApply: true });
-    } catch (error) {
-      window.alert(error.message || "Save win number failed");
-    }
-  };
-
-  const clearWinNumber = async (slot) => {
-    try {
-      await clearResultApi({
-        date: resultDate,
-        drawTime: slot,
-      });
-      await syncSellerData({ forceApply: true });
-      setResultDrafts((current) => ({ ...current, [slot]: "" }));
-    } catch (error) {
-      window.alert(error.message || "Clear win number failed");
-    }
   };
 
   const claimTicket = async (ticketId) => {
@@ -1333,7 +1295,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
           <div className="glass-card">
             <div className="section-header">
               <h2>Result Checker</h2>
-              <span>Add win numbers by draw slot. Winning tickets update automatically after result entry.</span>
+              <span>View admin-published win numbers by draw slot. Winning tickets update automatically after result entry.</span>
             </div>
 
             <div className="action-bar seller-mobile-toolbar">
@@ -1358,25 +1320,11 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   </div>
 
                   <input
-                    type="tel"
-                    value={resultDrafts[option.value] || ""}
-                    onChange={(event) =>
-                      setResultDrafts((current) => ({
-                        ...current,
-                        [option.value]: event.target.value.replace(/[^\d]/g, "").slice(0, 2),
-                      }))
-                    }
-                    placeholder="Win number"
-                    inputMode="numeric"
-                    autoComplete="off"
+                    type="text"
+                    value={winResults[buildResultKey(resultDate, option.value)] || ""}
+                    placeholder="Waiting for admin result"
+                    readOnly
                   />
-
-                  <div className="inline-actions">
-                    <button onClick={() => saveWinNumber(option.value)}>Save Win Number</button>
-                    <button className="outline-btn" onClick={() => clearWinNumber(option.value)}>
-                      Clear
-                    </button>
-                  </div>
                 </div>
               ))}
             </div>
@@ -2181,15 +2129,6 @@ function sanitizeNumber(value) {
   return Number(value.replace(/[^\d]/g, "") || 0);
 }
 
-function buildResultDraftMap(defaultValue, dateValue, results) {
-  return drawOptions.reduce((accumulator, option) => {
-    const resultKey =
-      dateValue && results ? results[buildResultKey(dateValue, option.value)] || defaultValue : defaultValue;
-    accumulator[option.value] = resultKey;
-    return accumulator;
-  }, {});
-}
-
 function safeLower(value) {
   return typeof value === "string" ? value.toLowerCase() : "";
 }
@@ -2266,36 +2205,107 @@ function getIntlNumberFormat(locale, options) {
   return globalIntl ? new globalIntl.NumberFormat(locale, options) : null;
 }
 
+function getAccessMode() {
+  if (typeof window === "undefined" || !window.location) {
+    return "seller";
+  }
+
+  return window.location.pathname.toLowerCase().startsWith("/admin")
+    ? "admin"
+    : "seller";
+}
+
+function isBackendOfflineError(message) {
+  return (
+    message === BACKEND_UNAVAILABLE_MESSAGE ||
+    message === BACKEND_TIMEOUT_MESSAGE
+  );
+}
+
 export default function App() {
+  const accessMode = getAccessMode();
   const [session, setSession] = useState(() => load(PANEL_SESSION_KEY, null));
-  const [role, setRole] = useState("admin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [backendStatus, setBackendStatus] = useState("");
+  const [backendState, setBackendState] = useState("checking");
   const [sellerSyncToken, setSellerSyncToken] = useState(0);
+  const hasSession = Boolean(session);
+  const sessionToken = session && session.token ? session.token : "";
+
+  const applyBootstrapData = useCallback((response) => {
+    save(SELLER_LIST_KEY, response.sellers || []);
+    setSellerSyncToken((current) => current + 1);
+    setBackendState("ready");
+    setBackendStatus("");
+  }, []);
+
+  const clearSavedSession = useCallback(() => {
+    try {
+      localStorage.removeItem(PANEL_SESSION_KEY);
+    } catch {}
+
+    setSession(null);
+  }, []);
+
+  const markBackendOffline = useCallback(
+    (clearSessionOnFail = false) => {
+      setBackendState("offline");
+      setBackendStatus("Backend is offline. Start the server, then tap retry.");
+
+      if (clearSessionOnFail) {
+        clearSavedSession();
+      }
+    },
+    [clearSavedSession]
+  );
 
   useEffect(() => {
     let active = true;
 
     const loadBootstrapData = async () => {
       try {
-        setBackendStatus("Connecting to backend...");
+        setBackendState("checking");
         const response = await fetchBootstrap();
 
         if (!active) {
           return;
         }
 
-        save(SELLER_LIST_KEY, response.sellers || []);
-        setSellerSyncToken((current) => current + 1);
-        setBackendStatus("Backend connected");
-      } catch {
+        applyBootstrapData(response);
+
+        if (hasSession) {
+          if (!sessionToken) {
+            clearSavedSession();
+            setBackendStatus("Session expired. Please login again.");
+            return;
+          }
+
+          const verifyResponse = await verifySessionApi();
+
+          if (!active) {
+            return;
+          }
+
+          save(PANEL_SESSION_KEY, verifyResponse.session);
+          setSession(verifyResponse.session);
+        }
+      } catch (error) {
         if (!active) {
           return;
         }
 
-        setBackendStatus("Backend offline. Start `npm run server` first.");
+        if (isBackendOfflineError(error && error.message)) {
+          markBackendOffline(true);
+          return;
+        }
+
+        clearSavedSession();
+        setBackendState("ready");
+        setBackendStatus(
+          error && error.message ? error.message : "Session expired. Please login again."
+        );
       }
     };
 
@@ -2304,61 +2314,114 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [applyBootstrapData, clearSavedSession, hasSession, markBackendOffline, sessionToken]);
+
+  useEffect(() => {
+    const handleAuthExpired = (event) => {
+      clearSavedSession();
+      setPassword("");
+      setBackendState("ready");
+      setBackendStatus(
+        event && event.detail && event.detail.message
+          ? event.detail.message
+          : "Session expired. Please login again."
+      );
+    };
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+
+    return () => {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    };
+  }, [clearSavedSession]);
+
+  const handleRetry = async () => {
+    try {
+      setBackendState("checking");
+      const response = await fetchBootstrap();
+      applyBootstrapData(response);
+    } catch {
+      markBackendOffline(false);
+    }
+  };
 
   const handleLogin = async () => {
     const trimmedUsername = username.trim();
     const trimmedPassword = password.trim();
+    let nextSession = null;
 
     if (!trimmedUsername || !trimmedPassword) {
-      window.alert("Enter username and password");
+      setBackendStatus("Enter username and password.");
       return;
     }
 
     try {
       setAuthLoading(true);
+      setBackendStatus("");
       const response = await loginApi({
-        role,
+        role: accessMode,
         username: trimmedUsername,
         password: trimmedPassword,
       });
-      const sellerResponse = await fetchSellersApi();
-      const nextSession = response.session;
-
-      save(SELLER_LIST_KEY, sellerResponse.sellers || []);
-      setSellerSyncToken((current) => current + 1);
+      nextSession = response.session;
       save(PANEL_SESSION_KEY, nextSession);
+
+      if (accessMode === "admin") {
+        const sellerResponse = await fetchSellersApi();
+        save(SELLER_LIST_KEY, sellerResponse.sellers || []);
+      }
+
+      setSellerSyncToken((current) => current + 1);
       setSession(nextSession);
       setPassword("");
-      setBackendStatus("Backend connected");
+      setBackendState("ready");
+      setBackendStatus("");
     } catch (error) {
-      window.alert(error.message || "Login failed");
-      setBackendStatus("Backend offline or login failed. Check `npm run server`.");
+      if (nextSession) {
+        clearSavedSession();
+      }
+
+      const message = error.message || "Login failed. Please try again.";
+      setBackendStatus(message);
+      setBackendState(isBackendOfflineError(message) ? "offline" : "ready");
     } finally {
       setAuthLoading(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     try {
-      localStorage.removeItem(PANEL_SESSION_KEY);
+      await logoutApi();
     } catch {}
 
-    setSession(null);
+    clearSavedSession();
     setPassword("");
+    setBackendStatus("");
   };
 
-  if (!session) {
+  useEffect(() => {
+    setUsername("");
+    setPassword("");
+    setBackendStatus("");
+  }, [accessMode]);
+
+  useEffect(() => {
+    if (session && session.role !== accessMode) {
+      clearSavedSession();
+    }
+  }, [accessMode, clearSavedSession, session]);
+
+  if (!session || backendState !== "ready" || session.role !== accessMode) {
     return (
       <LoginScreen
-        role={role}
-        setRole={setRole}
+        role={accessMode}
         username={username}
         setUsername={setUsername}
         password={password}
         setPassword={setPassword}
         onLogin={handleLogin}
-        loading={authLoading}
+        onRetry={backendState === "offline" ? handleRetry : undefined}
+        loading={authLoading || backendState === "checking"}
         statusMessage={backendStatus}
       />
     );

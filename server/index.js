@@ -1,4 +1,5 @@
 const http = require("http");
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -28,6 +29,9 @@ const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || "0.0.0.0";
 const BUILD_DIR = path.join(__dirname, "..", "build");
 const STATIC_DIR = path.join(BUILD_DIR, "static");
+const activeSessions = new Map();
+const AUTH_REQUIRED_MESSAGE = "Session expired. Please login again.";
+const FORBIDDEN_MESSAGE = "You do not have permission for this action.";
 
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(res);
@@ -40,6 +44,7 @@ const server = http.createServer(async (req, res) => {
 
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = requestUrl.pathname;
+  const authSession = getAuthSession(req);
 
   try {
     if (req.method === "GET" && pathname === "/api/health") {
@@ -62,12 +67,14 @@ const server = http.createServer(async (req, res) => {
           username === db.admin.username &&
           password === db.admin.password
         ) {
+          const session = createSession({
+            role: "admin",
+            username: db.admin.username,
+          });
+
           return sendJson(res, 200, {
             ok: true,
-            session: {
-              role: "admin",
-              username: db.admin.username,
-            },
+            session,
           });
         }
       }
@@ -81,14 +88,16 @@ const server = http.createServer(async (req, res) => {
         );
 
         if (seller) {
+          const session = createSession({
+            role: "seller",
+            username: seller.username,
+            sellerId: seller.id,
+            sellerName: seller.name,
+          });
+
           return sendJson(res, 200, {
             ok: true,
-            session: {
-              role: "seller",
-              username: seller.username,
-              sellerId: seller.id,
-              sellerName: seller.name,
-            },
+            session,
           });
         }
       }
@@ -99,17 +108,41 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === "GET" && pathname === "/api/auth/session") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        session: toSessionPayload(authSession),
+      });
+    }
+
+    if (req.method === "POST" && pathname === "/api/auth/logout") {
+      if (authSession && authSession.token) {
+        activeSessions.delete(authSession.token);
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+      });
+    }
+
     if (req.method === "GET" && pathname === "/api/bootstrap") {
       const db = getDb();
       return sendJson(res, 200, {
         ok: true,
-        admin: { username: db.admin.username },
-        sellers: db.sellers,
+        sellers: db.sellers.map(toPublicSeller),
         settings: db.settings,
       });
     }
 
     if (pathname === "/api/sellers" && req.method === "GET") {
+      if (!ensureRole(res, authSession, "admin")) {
+        return;
+      }
+
       const db = getDb();
       return sendJson(res, 200, {
         ok: true,
@@ -118,6 +151,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/sellers" && req.method === "POST") {
+      if (!ensureRole(res, authSession, "admin")) {
+        return;
+      }
+
       const body = await readJsonBody(req);
       const db = updateDb((current) => {
         current.sellers.push(createSeller(body, current.sellers));
@@ -131,6 +168,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname.startsWith("/api/sellers/") && req.method === "PATCH") {
+      if (!ensureRole(res, authSession, "admin")) {
+        return;
+      }
+
       const sellerId = extractId(pathname, "/api/sellers/");
       const body = await readJsonBody(req);
 
@@ -148,6 +189,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/tickets" && req.method === "GET") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
       const db = getDb();
       const date = requestUrl.searchParams.get("date");
       const drawTime = requestUrl.searchParams.get("drawTime");
@@ -163,11 +208,15 @@ const server = http.createServer(async (req, res) => {
         tickets = tickets.filter((ticket) => ticket.drawTime === drawTime);
       }
 
-      if (sellerUsername) {
+      if (authSession.role === "seller") {
         tickets = tickets.filter(
           (ticket) =>
-            String(ticket.sellerUsername || "").toLowerCase() ===
-            sellerUsername.toLowerCase()
+            normalizeUsername(ticket.sellerUsername) === normalizeUsername(authSession.username)
+        );
+      } else if (sellerUsername) {
+        tickets = tickets.filter(
+          (ticket) =>
+            normalizeUsername(ticket.sellerUsername) === normalizeUsername(sellerUsername)
         );
       }
 
@@ -178,9 +227,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/tickets" && req.method === "POST") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
       const body = await readJsonBody(req);
       const db = updateDb((current) => {
-        current.tickets.unshift(createTicket(body));
+        current.tickets.unshift(
+          createTicket(
+            authSession.role === "seller"
+              ? {
+                  ...body,
+                  sellerUsername: authSession.username,
+                }
+              : body
+          )
+        );
         return current;
       });
 
@@ -191,12 +253,41 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname.startsWith("/api/tickets/") && req.method === "PATCH") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
       const ticketId = extractId(pathname, "/api/tickets/");
       const body = await readJsonBody(req);
 
       const db = updateDb((current) => {
+        const existingTicket = current.tickets.find(
+          (ticket) => String(ticket.id) === ticketId
+        );
+
+        if (!existingTicket) {
+          throw new Error("Ticket not found");
+        }
+
+        if (
+          authSession.role === "seller" &&
+          normalizeUsername(existingTicket.sellerUsername) !== normalizeUsername(authSession.username)
+        ) {
+          throw new ForbiddenError(FORBIDDEN_MESSAGE);
+        }
+
         current.tickets = current.tickets.map((ticket) =>
-          String(ticket.id) === ticketId ? updateTicket(ticket, body) : ticket
+          String(ticket.id) === ticketId
+            ? updateTicket(
+                ticket,
+                authSession.role === "seller"
+                  ? {
+                      ...body,
+                      sellerUsername: ticket.sellerUsername,
+                    }
+                  : body
+              )
+            : ticket
         );
         return current;
       });
@@ -208,6 +299,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/results" && req.method === "GET") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
       const db = getDb();
       const date = requestUrl.searchParams.get("date");
       const drawTime = requestUrl.searchParams.get("drawTime");
@@ -229,6 +324,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/results" && req.method === "PUT") {
+      if (!ensureRole(res, authSession, "admin")) {
+        return;
+      }
+
       const body = await readJsonBody(req);
       const result = {
         date: String(body.date || ""),
@@ -265,6 +364,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/results" && req.method === "DELETE") {
+      if (!ensureRole(res, authSession, "admin")) {
+        return;
+      }
+
       const date = String(requestUrl.searchParams.get("date") || "");
       const drawTime = String(requestUrl.searchParams.get("drawTime") || "");
 
@@ -289,6 +392,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/dashboard/overview" && req.method === "GET") {
+      if (!ensureRole(res, authSession, "admin")) {
+        return;
+      }
+
       const db = getDb();
       return sendJson(res, 200, {
         ok: true,
@@ -297,6 +404,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/dashboard/risk" && req.method === "GET") {
+      if (!ensureRole(res, authSession, "admin")) {
+        return;
+      }
+
       const db = getDb();
       const date = requestUrl.searchParams.get("date");
       const drawTime = requestUrl.searchParams.get("drawTime");
@@ -319,8 +430,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/reports/seller" && req.method === "GET") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
       const db = getDb();
-      const sellerUsername = requestUrl.searchParams.get("sellerUsername");
+      const requestedSellerUsername = requestUrl.searchParams.get("sellerUsername");
+      const sellerUsername =
+        authSession.role === "seller"
+          ? authSession.username
+          : requestedSellerUsername;
       const date = requestUrl.searchParams.get("date");
       const drawTime = requestUrl.searchParams.get("drawTime");
 
@@ -331,14 +450,24 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      if (
+        authSession.role === "seller" &&
+        requestedSellerUsername &&
+        normalizeUsername(requestedSellerUsername) !== normalizeUsername(authSession.username)
+      ) {
+        return sendJson(res, 403, {
+          ok: false,
+          message: FORBIDDEN_MESSAGE,
+        });
+      }
+
       const seller = db.sellers.find(
-        (item) => item.username.toLowerCase() === sellerUsername.toLowerCase()
+        (item) => normalizeUsername(item.username) === normalizeUsername(sellerUsername)
       );
 
       const tickets = db.tickets.filter((ticket) => {
         if (
-          String(ticket.sellerUsername || "").toLowerCase() !==
-          sellerUsername.toLowerCase()
+          normalizeUsername(ticket.sellerUsername) !== normalizeUsername(sellerUsername)
         ) {
           return false;
         }
@@ -364,10 +493,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/reports/summary" && req.method === "GET") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
       const db = getDb();
       const range = String(requestUrl.searchParams.get("range") || "Daily");
       const today = String(requestUrl.searchParams.get("today") || "");
-      const sellerUsername = String(requestUrl.searchParams.get("sellerUsername") || "");
+      const sellerUsername =
+        authSession.role === "seller"
+          ? authSession.username
+          : String(requestUrl.searchParams.get("sellerUsername") || "");
 
       if (!today) {
         return sendJson(res, 400, {
@@ -395,6 +531,20 @@ const server = http.createServer(async (req, res) => {
       message: "Route not found",
     });
   } catch (error) {
+    if (error instanceof ForbiddenError) {
+      return sendJson(res, 403, {
+        ok: false,
+        message: error.message || FORBIDDEN_MESSAGE,
+      });
+    }
+
+    if (error && error.message === "Ticket not found") {
+      return sendJson(res, 404, {
+        ok: false,
+        message: error.message,
+      });
+    }
+
     return sendJson(res, 500, {
       ok: false,
       message: error.message || "Server error",
@@ -413,8 +563,8 @@ server.listen(PORT, HOST, () => {
 
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
 }
 
 function sendJson(res, statusCode, payload) {
@@ -427,6 +577,95 @@ function sendJson(res, statusCode, payload) {
 function extractId(pathname, prefix) {
   return pathname.slice(prefix.length).split("/")[0];
 }
+
+function normalizeUsername(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function createSession(payload) {
+  const session = {
+    ...payload,
+    token: crypto.randomBytes(24).toString("hex"),
+    createdAt: new Date().toISOString(),
+  };
+
+  activeSessions.set(session.token, session);
+  return toSessionPayload(session);
+}
+
+function toSessionPayload(session = {}) {
+  return {
+    role: session.role,
+    username: session.username,
+    sellerId: session.sellerId,
+    sellerName: session.sellerName,
+    token: session.token,
+  };
+}
+
+function getAuthSession(req) {
+  const authorization = String(req.headers.authorization || "");
+
+  if (!authorization.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authorization.slice("Bearer ".length).trim();
+
+  if (!token) {
+    return null;
+  }
+
+  const session = activeSessions.get(token);
+
+  if (!session) {
+    return null;
+  }
+
+  return session;
+}
+
+function ensureAuthenticated(res, session) {
+  if (session) {
+    return true;
+  }
+
+  sendJson(res, 401, {
+    ok: false,
+    message: AUTH_REQUIRED_MESSAGE,
+  });
+  return false;
+}
+
+function ensureRole(res, session, role) {
+  if (!ensureAuthenticated(res, session)) {
+    return false;
+  }
+
+  if (session.role === role) {
+    return true;
+  }
+
+  sendJson(res, 403, {
+    ok: false,
+    message: FORBIDDEN_MESSAGE,
+  });
+  return false;
+}
+
+function toPublicSeller(seller = {}) {
+  return {
+    id: seller.id,
+    name: seller.name || "",
+    mobile: seller.mobile || "",
+    username: seller.username || "",
+    active: seller.active !== undefined ? Boolean(seller.active) : true,
+    singleCommission: Number(seller.singleCommission || 0),
+    juriCommission: Number(seller.juriCommission || 0),
+  };
+}
+
+class ForbiddenError extends Error {}
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
