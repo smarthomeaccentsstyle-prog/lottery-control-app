@@ -37,18 +37,18 @@ const tabs = [
   "Ticket Store",
   "Claims",
   "Dashboard",
-  "Result Checker",
+  "Results",
   "Reports",
   "Due",
 ];
 
 const drawOptions = [
-  { value: "11:00", label: "11:00 AM" },
-  { value: "13:00", label: "1:00 PM" },
-  { value: "15:00", label: "3:00 PM" },
-  { value: "18:00", label: "6:00 PM" },
-  { value: "19:00", label: "7:00 PM" },
-  { value: "20:00", label: "8:00 PM" },
+  { value: "11:00", label: "11:00 AM", cutoff: "11:10" },
+  { value: "13:00", label: "1:00 PM", cutoff: "12:58" },
+  { value: "15:00", label: "3:00 PM", cutoff: "15:10" },
+  { value: "18:00", label: "6:00 PM", cutoff: "17:58" },
+  { value: "19:00", label: "7:00 PM", cutoff: "19:10" },
+  { value: "20:00", label: "8:00 PM", cutoff: "19:58" },
 ];
 
 const reportRanges = ["Daily", "Weekly", "Monthly", "Yearly"];
@@ -57,10 +57,17 @@ const sellerMobileTabLabels = {
   "New Ticket": "New",
   "Ticket Store": "Store",
   Reports: "Reports",
-  "Result Checker": "Results",
   Claims: "Claims",
+  Results: "Result",
   Due: "Due",
 };
+const sellerMobileDockTabs = [
+  "New Ticket",
+  "Ticket Store",
+  "Claims",
+  "Dashboard",
+  "Results",
+];
 const mobileNewTicketSections = [
   { value: "details", label: "Info" },
   { value: "third", label: "3rd" },
@@ -110,8 +117,10 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [paidAmount, setPaidAmount] = useState(persisted.paidAmount || "");
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketFilter, setTicketFilter] = useState("ALL");
+  const [claimTicketSearch, setClaimTicketSearch] = useState("");
+  const [claimDeskNotice, setClaimDeskNotice] = useState(null);
+  const [resultDate, setResultDate] = useState(() => getTodayString());
   const [reportRange, setReportRange] = useState("Daily");
-  const [resultDate, setResultDate] = useState(getTodayString());
   const [syncMessage, setSyncMessage] = useState("");
   const [reportSummaryMap, setReportSummaryMap] = useState(() => buildEmptyReportSummaryMap());
   const [mobileTicketSection, setMobileTicketSection] = useState("details");
@@ -425,6 +434,69 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       };
     });
   }, [activeTickets, todayString, winResults]);
+  const effectiveResultDate = resultDate || todayString;
+  const resultBoard = useMemo(
+    () =>
+      drawOptions.map((slot) => {
+        const slotTickets = activeTickets.filter(
+          (ticket) => ticket.date === effectiveResultDate && ticket.drawTime === slot.value
+        );
+        const resultNumber = winResults[buildResultKey(effectiveResultDate, slot.value)] || "";
+        const winningTickets = resultNumber
+          ? slotTickets.filter((ticket) => getStoredResultInfo(ticket, winResults).payout > 0)
+          : [];
+        const claimReadyTickets = winningTickets.filter((ticket) => !ticket.claimed);
+        const claimedWinningTickets = winningTickets.filter((ticket) => ticket.claimed);
+        const claimReadyPayout = claimReadyTickets.reduce(
+          (sum, ticket) => sum + getStoredResultInfo(ticket, winResults).payout,
+          0
+        );
+
+        let statusTone = "pending";
+        let statusLabel = "Waiting";
+        let statusMessage = "Waiting for admin result confirmation. Winning claims will open after confirm.";
+
+        if (resultNumber) {
+          if (claimReadyTickets.length > 0) {
+            statusTone = "ready";
+            statusLabel = "Claim Ready";
+            statusMessage = `Admin confirmed result. ${claimReadyTickets.length} winning ticket(s) can be claimed now.`;
+          } else if (claimedWinningTickets.length > 0) {
+            statusTone = "claimed";
+            statusLabel = "Claimed";
+            statusMessage = `Admin confirmed result. All ${claimedWinningTickets.length} winning ticket(s) already claimed.`;
+          } else {
+            statusTone = "confirmed";
+            statusLabel = "Confirmed";
+            statusMessage = "Admin confirmed result. No winning tickets for this draw.";
+          }
+        }
+
+        return {
+          value: slot.value,
+          label: slot.label,
+          ticketCount: slotTickets.length,
+          resultNumber,
+          winnerCount: winningTickets.length,
+          claimReadyCount: claimReadyTickets.length,
+          claimedWinningCount: claimedWinningTickets.length,
+          claimReadyPayout,
+          statusTone,
+          statusLabel,
+          statusMessage,
+        };
+      }),
+    [activeTickets, effectiveResultDate, winResults]
+  );
+  const resultBoardSummary = useMemo(
+    () => ({
+      confirmedCount: resultBoard.filter((slot) => Boolean(slot.resultNumber)).length,
+      pendingCount: resultBoard.filter((slot) => !slot.resultNumber).length,
+      claimReadyCount: resultBoard.reduce((sum, slot) => sum + slot.claimReadyCount, 0),
+      claimReadyPayout: resultBoard.reduce((sum, slot) => sum + slot.claimReadyPayout, 0),
+    }),
+    [resultBoard]
+  );
 
   const filteredTickets = useMemo(() => {
     const query = ticketSearch.trim().toLowerCase();
@@ -448,18 +520,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
 
   const reportMetrics = reportSummaryMap[reportRange] || emptyReportMetrics();
 
-  const resultPreview = useMemo(
-    () =>
-      activeTickets
-        .filter((ticket) => ticket.date === resultDate)
-        .map((ticket) => {
-          const resultInfo = getStoredResultInfo(ticket, winResults);
-          return { ...ticket, resultInfo };
-        })
-        .filter((ticket) => ticket.resultInfo.payout > 0),
-    [activeTickets, resultDate, winResults]
-  );
-
   const claimableTickets = useMemo(
     () =>
       activeTickets
@@ -481,6 +541,72 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         })),
     [activeTickets, winResults]
   );
+  const claimLookupValue = claimTicketSearch.trim();
+  const claimLookupTicket = useMemo(() => {
+    if (!claimLookupValue) {
+      return null;
+    }
+
+    return tickets.find((ticket) => String(ticket.id) === claimLookupValue) || null;
+  }, [claimLookupValue, tickets]);
+  const claimLookupResultInfo = useMemo(() => {
+    if (!claimLookupTicket) {
+      return null;
+    }
+
+    return getStoredResultInfo(claimLookupTicket, winResults);
+  }, [claimLookupTicket, winResults]);
+  const claimLookupState = useMemo(() => {
+    if (!claimLookupValue) {
+      return null;
+    }
+
+    if (!claimLookupTicket) {
+      return {
+        tone: "missing",
+        title: "Ticket not found",
+        message: "Check the printed ticket ID and try again.",
+      };
+    }
+
+    if (claimLookupTicket.cancelled) {
+      return {
+        tone: "blocked",
+        title: "Cancelled ticket",
+        message: "Cancelled ticket cannot be claimed.",
+      };
+    }
+
+    if (claimLookupTicket.claimed) {
+      return {
+        tone: "claimed",
+        title: "Already claimed",
+        message: "One ticket ID can be claimed only once.",
+      };
+    }
+
+    if (!claimLookupResultInfo || !claimLookupResultInfo.winningNumber) {
+      return {
+        tone: "pending",
+        title: "Result not ready",
+        message: "Admin result is not available yet for this ticket.",
+      };
+    }
+
+    if (!claimLookupResultInfo.payout) {
+      return {
+        tone: "loss",
+        title: "Sorry, next time.",
+        message: "This ticket did not win for the selected result.",
+      };
+    }
+
+    return {
+      tone: "winner",
+      title: "Winner found",
+      message: "This ticket is ready for claim now.",
+    };
+  }, [claimLookupResultInfo, claimLookupTicket, claimLookupValue]);
 
   const dueTickets = useMemo(
     () => activeTickets.filter((ticket) => ticket.dueAmount > 0),
@@ -540,25 +666,21 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         return;
       }
 
-      if (action === "+1" || action === "+5") {
-        const increment = action === "+5" ? 5 : 1;
-        setSingleDigitValue(
-          house,
-          selectedDigit,
-          String(Number(currentValue || 0) + increment)
-        );
-        return;
-      }
+      if (action === "clearAll") {
+        if (house === "third") {
+          setThird(emptySingle());
+          setSelectedThirdDigit(0);
+          return;
+        }
 
-      if (action === "next") {
-        setSelectedSingleDigit(house, (selectedDigit + 1) % 10);
+        setFourth(emptySingle());
+        setSelectedFourthDigit(0);
       }
     },
     [
       fourth,
       selectedFourthDigit,
       selectedThirdDigit,
-      setSelectedSingleDigit,
       setSingleDigitValue,
       third,
     ]
@@ -636,7 +758,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const sellerPriorityActions = useMemo(
     () => [
       {
-        title: "Fast New Ticket",
+        title: "New Ticket",
         hint: `${formatDrawTime(drawTime)} for ${effectiveTicketDate}`,
         value: `${previewItems.length} item(s)`,
         action: () => setActiveTab("New Ticket"),
@@ -763,7 +885,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       }
 
       if (!canEditTicket(editableTicket)) {
-        window.alert("This ticket is locked. You can only edit before draw time.");
+        window.alert("This ticket is locked. You can only edit before last entry time.");
         clearForm();
         return;
       }
@@ -792,34 +914,50 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setActiveTab(wasEditing ? "Ticket Store" : "New Ticket");
   };
 
-  const claimTicket = async (ticketId) => {
+  const claimTicket = async (ticketId, options = {}) => {
+    const { silent = false } = options;
     const ticket = tickets.find((currentTicket) => currentTicket.id === ticketId);
 
     if (!ticket) {
-      window.alert("Ticket not found");
-      return;
+      const message = "Ticket not found";
+      if (!silent) {
+        window.alert(message);
+      }
+      return { ok: false, message };
     }
 
     if (ticket.cancelled) {
-      window.alert("Cancelled ticket cannot be claimed");
-      return;
+      const message = "Cancelled ticket cannot be claimed";
+      if (!silent) {
+        window.alert(message);
+      }
+      return { ok: false, message };
     }
 
     if (ticket.claimed) {
-      window.alert("Already claimed");
-      return;
+      const message = "Already claimed";
+      if (!silent) {
+        window.alert(message);
+      }
+      return { ok: false, message };
     }
 
     const resultInfo = getStoredResultInfo(ticket, winResults);
 
     if (!resultInfo.winningNumber) {
-      window.alert("Add the win number first in Result Checker");
-      return;
+      const message = "Admin result is not available yet";
+      if (!silent) {
+        window.alert(message);
+      }
+      return { ok: false, message };
     }
 
     if (!resultInfo.payout) {
-      window.alert("This ticket is not a winner");
-      return;
+      const message = "This ticket is not a winner";
+      if (!silent) {
+        window.alert(message);
+      }
+      return { ok: false, message };
     }
 
     try {
@@ -828,11 +966,58 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         payout: resultInfo.payout,
         winningNumber: resultInfo.winningNumber,
       });
-      window.alert(`Payout ₹${resultInfo.payout}`);
+      if (!silent) {
+        window.alert(`Payout ₹${resultInfo.payout}`);
+      }
       await syncSellerData({ forceApply: true });
+      return {
+        ok: true,
+        payout: resultInfo.payout,
+        winningNumber: resultInfo.winningNumber,
+      };
     } catch (error) {
-      window.alert(error.message || "Claim update failed");
+      const message = error.message || "Claim update failed";
+      if (!silent) {
+        window.alert(message);
+      }
+      return { ok: false, message };
     }
+  };
+
+  const handleClaimTicketSearchChange = (event) => {
+    setClaimDeskNotice(null);
+    setClaimTicketSearch(event.target.value.replace(/\D/g, ""));
+  };
+
+  const clearClaimDesk = () => {
+    setClaimDeskNotice(null);
+    setClaimTicketSearch("");
+  };
+
+  const claimTicketFromDesk = async () => {
+    if (!claimLookupTicket || !claimLookupResultInfo || !claimLookupResultInfo.payout) {
+      return;
+    }
+
+    const outcome = await claimTicket(claimLookupTicket.id, {
+      silent: true,
+    });
+
+    if (outcome && outcome.ok) {
+      setClaimDeskNotice({
+        tone: "winner",
+        title: "Claim completed",
+        message: `Ticket #${claimLookupTicket.id} claimed for ${formatCurrency(outcome.payout)}.`,
+      });
+      setClaimTicketSearch("");
+      return;
+    }
+
+    setClaimDeskNotice({
+      tone: "blocked",
+      title: "Claim failed",
+      message: outcome && outcome.message ? outcome.message : "Claim update failed.",
+    });
   };
 
   const startEditTicket = (ticketId) => {
@@ -844,7 +1029,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     }
 
     if (!canEditTicket(ticket)) {
-      window.alert("Ticket is locked. Edit is allowed only before draw time.");
+      window.alert("Ticket is locked. Edit is allowed only before last entry time.");
       return;
     }
 
@@ -881,7 +1066,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     }
 
     if (!canCancelTicket(ticket)) {
-      window.alert("Ticket can only be cancelled before draw time.");
+      window.alert("Ticket can only be cancelled before last entry time.");
       return;
     }
 
@@ -940,7 +1125,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
             <div>
               <h1>Seller Panel</h1>
               <p>
-                Daily ticket selling, cutoff lock, result checking, claim, due and print.
+                Mobile seller panel for ticket entry, results, claim, due and reprint.
               </p>
             </div>
             <div className="hero-actions">
@@ -1075,6 +1260,66 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
           </>
         )}
 
+        {activeTab === "Results" && (
+          <div className="glass-card">
+            <div className="section-header">
+              <h2>Game Results</h2>
+              <span>Only admin confirmed results appear here. After confirm, all winning claims become available in the claim desk.</span>
+            </div>
+
+            <div className="results-toolbar">
+              <div className="result-date-card">
+                <label htmlFor="seller-result-date">Result Date</label>
+                <input
+                  id="seller-result-date"
+                  type="date"
+                  value={effectiveResultDate}
+                  onChange={(event) => setResultDate(event.target.value)}
+                />
+                <p>Choose any date to check each game result and claim readiness.</p>
+              </div>
+
+              <div className="mini-summary">
+                <MiniBox label="Confirmed" value={resultBoardSummary.confirmedCount} />
+                <MiniBox label="Claim Ready" value={resultBoardSummary.claimReadyCount} premium />
+                <MiniBox label="Ready Payout" value={formatCurrency(resultBoardSummary.claimReadyPayout)} />
+              </div>
+            </div>
+
+            <div className="result-grid">
+              {resultBoard.map((slot) => (
+                <div key={`${effectiveResultDate}-${slot.value}`} className={`result-card seller-result-card ${slot.statusTone}`}>
+                  <div className="result-card-top">
+                    <div>
+                      <strong>{slot.label}</strong>
+                      <span>{effectiveResultDate}</span>
+                    </div>
+                    <span className={`result-tag ${slot.statusTone}`}>{slot.statusLabel}</span>
+                  </div>
+
+                  <div className="result-number-display">{slot.resultNumber || "--"}</div>
+                  <p className="result-note">{slot.statusMessage}</p>
+
+                  <div className="result-meta-strip">
+                    <div className="result-stat">
+                      <span>Tickets</span>
+                      <strong>{slot.ticketCount}</strong>
+                    </div>
+                    <div className="result-stat">
+                      <span>Winners</span>
+                      <strong>{slot.winnerCount}</strong>
+                    </div>
+                    <div className="result-stat">
+                      <span>Claim Payout</span>
+                      <strong>{formatCurrency(slot.claimReadyPayout)}</strong>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === "New Ticket" && (
           <div className="workspace-grid ticket-workspace-grid">
             <div className="glass-card ticket-entry-card">
@@ -1082,7 +1327,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 <h2>{editingTicketId ? "Edit Ticket" : "Create New Ticket"}</h2>
                 <span>
                     {editingTicketId
-                      ? "Update the ticket before draw time. Locked tickets cannot be changed."
+                      ? "Update the ticket before last entry time. Locked tickets cannot be changed."
                     : "Fast ticket-first flow for mobile sellers. Pick draw, enter numbers, then save."}
                 </span>
               </div>
@@ -1090,7 +1335,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               {editingTicketId ? (
                 <div className="editing-banner">
                   <strong>Editing Ticket #{editingTicketId}</strong>
-                  <span>You can still change or cancel it only until the selected draw time.</span>
+                  <span>You can still change or cancel it only until the selected last entry time.</span>
                 </div>
               ) : null}
 
@@ -1115,6 +1360,8 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 <div className="form-row two">
                   <input
                     type="date"
+                    min={todayString}
+                    max={getLatestAllowedBookingDate()}
                     value={date}
                     onChange={(event) =>
                       setDate(getNextValidBookingDate(event.target.value, drawTime))
@@ -1140,14 +1387,13 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   <strong>Booking For: {effectiveTicketDate}</strong>
                   <span>
                     {bookingDateAdjusted
-                      ? `${formatDrawTime(drawTime)} draw is already over for ${date}. Ticket will go to ${effectiveTicketDate}.`
-                      : `${formatDrawTime(drawTime)} draw is open for ${effectiveTicketDate}.`}
+                      ? `${formatDrawTime(drawTime)} last entry closed at ${formatEntryCutoffTime(drawTime)} for ${date}. Ticket will go to ${effectiveTicketDate}.`
+                      : `${formatDrawTime(drawTime)} ticket entry is open for ${effectiveTicketDate} until ${formatEntryCutoffTime(drawTime)}.`}
                   </span>
                 </div>
 
                 <div className="fast-entry-banner">
-                  <strong>Fast Entry Mode</strong>
-                  <span>Tap a digit, use the keypad like a calculator, then save. Closed same-day draws move to the next valid date automatically.</span>
+                  <span>Tap a digit, use the keypad like a calculator, then save. Closed same-day draws move to the next day only, and ticket booking is valid for one day ahead only.</span>
                 </div>
               </div>
 
@@ -1203,7 +1449,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 onFocusCapture={() => focusMobileTicketSection("juri")}
               >
                 <div className="panel-title-row">
-                  <strong>Juri Fast Entry</strong>
+                  <strong>Juri Entry</strong>
                   <span>Enter number, enter qty, then add.</span>
                 </div>
 
@@ -1451,8 +1697,8 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                       ) : (
                         <p className="saved-line">
                           {ticketStatus === "LOCKED"
-                            ? "Ticket is locked because draw time is over. Edit and cancel are disabled."
-                            : "Ticket is open. You can still edit or cancel it before draw time."}
+                            ? `Ticket is locked because last entry time ${formatEntryCutoffTime(ticket.drawTime)} is over. Edit and cancel are disabled.`
+                            : `Ticket is open. You can still edit or cancel it before ${formatEntryCutoffTime(ticket.drawTime)}.`}
                         </p>
                       )}
                       <p className="saved-line">
@@ -1477,12 +1723,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                         ) : null}
                         {!ticket.cancelled ? (
                           <button className="outline-btn" onClick={() => printTicket(ticket.id)}>
-                            Print
-                          </button>
-                        ) : null}
-                        {!ticket.cancelled ? (
-                          <button className="outline-btn" onClick={() => setActiveTab("Result Checker")}>
-                            Result Checker
+                            Reprint
                           </button>
                         ) : null}
                       </div>
@@ -1576,100 +1817,109 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
           </div>
         )}
 
-        {activeTab === "Result Checker" && (
-          <div className="glass-card">
-            <div className="section-header">
-              <h2>Result Checker</h2>
-              <span>View admin-published win numbers by draw slot. Winning tickets update automatically after result entry.</span>
-            </div>
-
-            <div className="action-bar seller-mobile-toolbar">
-              <input
-                type="date"
-                value={resultDate}
-                onChange={(event) => setResultDate(event.target.value)}
-              />
-            </div>
-
-            <div className="result-grid">
-              {drawOptions.map((option) => (
-                <div key={`${resultDate}-${option.value}`} className="result-card">
-                  <div className="result-card-top">
-                    <div>
-                      <strong>{option.label}</strong>
-                      <span>Stored result: {winResults[buildResultKey(resultDate, option.value)] || "--"}</span>
-                    </div>
-                    <span className="result-tag">
-                      {resultPreview.filter((ticket) => ticket.drawTime === option.value).length} winner(s)
-                    </span>
-                  </div>
-
-                  <input
-                    type="text"
-                    value={winResults[buildResultKey(resultDate, option.value)] || ""}
-                    placeholder="Waiting for admin result"
-                    readOnly
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="ticket-list">
-              {resultPreview.length === 0 ? (
-                <p className="empty">No winning tickets found for this date yet.</p>
-              ) : (
-                resultPreview.map((ticket) => (
-                  <div key={`${ticket.id}-${ticket.resultInfo.winningNumber}`} className="saved-ticket">
-                    <div className="saved-top">
-                      <div>
-                        <strong>#{ticket.id}</strong>
-                        <span>
-                          {ticket.customerName} | {formatDrawTime(ticket.drawTime)} | Win No. {ticket.resultInfo.winningNumber}
-                        </span>
-                      </div>
-                      <div className="saved-right">
-                        <strong>{formatCurrency(ticket.resultInfo.payout)}</strong>
-                        <span>Auto result payout</span>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
         {activeTab === "Claims" && (
           <div className="glass-card">
             <div className="section-header">
-              <h2>Winning Claims</h2>
-              <span>Win number matched tickets appear here automatically after result entry.</span>
+              <h2>Claim By Ticket ID</h2>
+              <span>Enter the printed ticket ID. Winning ticket can be claimed once, others show sorry next time.</span>
             </div>
 
-            <div className="ticket-list">
-              {claimableTickets.length === 0 ? (
-                <p className="empty">No winning tickets ready for claim.</p>
-              ) : (
-                claimableTickets.map((ticket) => (
-                  <div key={ticket.id} className="saved-ticket">
-                    <div className="saved-top">
-                      <div>
-                        <strong>#{ticket.id}</strong>
-                        <span>
-                          {ticket.customerName} | {formatDrawTime(ticket.drawTime)} | Win No. {ticket.resultInfo.winningNumber}
-                        </span>
-                      </div>
-                      <div className="saved-right">
-                        <strong>{formatCurrency(ticket.resultInfo.payout)}</strong>
-                        <span>Ready to claim</span>
-                      </div>
-                    </div>
+            <div className="claims-workspace">
+              <div className="claim-summary-grid">
+                <MiniBox label="Ready Claims" value={claimableTickets.length} />
+                <MiniBox label="Pending Payout" value={formatCurrency(pendingClaimAmount)} premium />
+              </div>
 
-                    <div className="inline-actions">
-                      <button onClick={() => claimTicket(ticket.id)}>Mark Claimed</button>
+              <div className="claim-desk-card">
+                <label className="claim-input-label" htmlFor="claim-ticket-id">
+                  Printed Ticket ID
+                </label>
+                <div className="claim-search-row">
+                  <input
+                    id="claim-ticket-id"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="Enter printed ticket ID"
+                    value={claimTicketSearch}
+                    onChange={handleClaimTicketSearchChange}
+                  />
+                  <button type="button" className="outline-btn" onClick={clearClaimDesk}>
+                    Clear ID
+                  </button>
+                </div>
+                <p className="claim-helper-copy">
+                  One ticket ID, one claim. If ticket does not win, seller sees sorry next time.
+                </p>
+              </div>
+
+              {claimDeskNotice ? (
+                <div className={`claim-status-card ${claimDeskNotice.tone}`}>
+                  <div className="claim-status-top">
+                    <div>
+                      <span className={`claim-status-badge ${claimDeskNotice.tone}`}>
+                        {claimDeskNotice.title}
+                      </span>
+                      <h3>{claimDeskNotice.title}</h3>
+                      <p>{claimDeskNotice.message}</p>
                     </div>
                   </div>
-                ))
+                </div>
+              ) : claimLookupState ? (
+                <div className={`claim-status-card ${claimLookupState.tone}`}>
+                  <div className="claim-status-top">
+                    <div>
+                      <span className={`claim-status-badge ${claimLookupState.tone}`}>
+                        {claimLookupState.title}
+                      </span>
+                      <h3>
+                        {claimLookupTicket ? `Ticket #${claimLookupTicket.id}` : "Claim Lookup"}
+                      </h3>
+                      <p>{claimLookupState.message}</p>
+                    </div>
+                    <div className="claim-status-value">
+                      <strong>
+                        {claimLookupResultInfo && claimLookupResultInfo.payout
+                          ? formatCurrency(claimLookupResultInfo.payout)
+                          : "--"}
+                      </strong>
+                      <span>Payout</span>
+                    </div>
+                  </div>
+
+                  {claimLookupTicket ? (
+                    <>
+                      <div className="claim-status-grid">
+                        <PreviewBox label="Customer" value={claimLookupTicket.customerName || "Walk-in Customer"} />
+                        <PreviewBox label="Date" value={claimLookupTicket.date} />
+                        <PreviewBox label="Draw" value={formatDrawTime(claimLookupTicket.drawTime)} />
+                        <PreviewBox
+                          label="Win Number"
+                          value={
+                            claimLookupResultInfo && claimLookupResultInfo.winningNumber
+                              ? claimLookupResultInfo.winningNumber
+                              : "--"
+                          }
+                        />
+                      </div>
+
+                      <TicketFormat layout={buildTicketLayout(claimLookupTicket.items)} compact />
+
+                      {claimLookupState.tone === "winner" ? (
+                        <div className="claim-status-actions">
+                          <button type="button" onClick={claimTicketFromDesk}>
+                            Claim Ticket
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="claim-empty-state">
+                  <strong>Ready for fast claim</strong>
+                  <span>Type the printed ticket ID to check winner, already claimed, or sorry next time.</span>
+                </div>
               )}
 
               {claimedTickets.length > 0 && (
@@ -1736,7 +1986,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         )}
 
         <nav className="seller-mobile-dock" aria-label="Seller quick navigation">
-          {tabs.map((tab) => (
+          {sellerMobileDockTabs.map((tab) => (
             <button
               key={`seller-dock-${tab}`}
               type="button"
@@ -1865,12 +2115,8 @@ function HouseCard({ title, values, selectedDigit, onSelectDigit, onPadInput }) 
 
       <FastKeypad
         onInput={onPadInput}
-        primaryActionLabel="Next Digit"
-        onPrimaryAction={() => onPadInput("next")}
         secondaryActions={[
-          { label: "+1", action: () => onPadInput("+1") },
-          { label: "+5", action: () => onPadInput("+5") },
-          { label: "Clear", action: () => onPadInput("clear") },
+          { label: "All Clear", action: () => onPadInput("clearAll") },
         ]}
       />
     </div>
@@ -1902,7 +2148,11 @@ function FastKeypad({
   return (
     <div className="fast-keypad-shell">
       {secondaryActions.length > 0 ? (
-        <div className="fast-keypad-shortcuts">
+        <div
+          className={`fast-keypad-shortcuts ${
+            secondaryActions.length === 1 ? "single-shortcut-row" : ""
+          }`}
+        >
           {secondaryActions.map((item) => (
             <button
               key={item.label}
@@ -1921,7 +2171,7 @@ function FastKeypad({
           <button
             key={value}
             type="button"
-            className={`fast-keypad-btn ${value === "CLR" ? "danger" : ""}`}
+            className={`fast-keypad-btn ${["CLR", "DEL"].includes(value) ? "danger" : ""}`}
             onClick={() => handleKeypadPress(value)}
           >
             {value}
@@ -2458,25 +2708,42 @@ function getNextAvailableDrawSelection(baseDate = getTodayString()) {
   };
 }
 
+function getLatestAllowedBookingDate() {
+  const today = parseDateString(getTodayString()) || new Date();
+  return formatDate(addDays(today, 1));
+}
+
 function getNextValidBookingDate(dateString, drawTime) {
   const today = parseDateString(getTodayString());
+  const tomorrow = parseDateString(getLatestAllowedBookingDate());
   let candidate = parseDateString(dateString) || today;
 
   if (candidate < today) {
     candidate = new Date(today);
   }
 
-  while (isDrawClosedForDate(candidate, drawTime)) {
-    candidate = addDays(candidate, 1);
+  if (candidate > tomorrow) {
+    candidate = new Date(tomorrow);
+  }
+
+  if (isDrawClosedForDate(candidate, drawTime)) {
+    candidate = new Date(tomorrow);
   }
 
   return formatDate(candidate);
 }
 
 function isDrawClosedForDate(dateValue, drawTime) {
-  const now = new Date();
-  const drawMoment = new Date(`${formatDate(dateValue)}T${drawTime}:00`);
-  return drawMoment <= now;
+  return getEntryCutoffMoment(dateValue, drawTime) <= new Date();
+}
+
+function getEntryCutoffMoment(dateValue, drawTime) {
+  return new Date(`${formatDate(dateValue)}T${getEntryCutoffValue(drawTime)}:00`);
+}
+
+function getEntryCutoffValue(drawTime) {
+  const match = drawOptions.find((option) => option.value === drawTime);
+  return match && match.cutoff ? match.cutoff : drawTime;
 }
 
 function addDays(dateValue, days) {
@@ -2565,9 +2832,17 @@ function getTodayString() {
 }
 
 function isLocked(ticket) {
-  const now = new Date();
-  const draw = new Date(`${ticket.date}T${ticket.drawTime}:00`);
-  return now > draw;
+  if (!ticket || !ticket.date || !ticket.drawTime) {
+    return false;
+  }
+
+  const ticketDate = parseDateString(ticket.date);
+
+  if (!ticketDate) {
+    return false;
+  }
+
+  return new Date() > getEntryCutoffMoment(ticketDate, ticket.drawTime);
 }
 
 function formatCurrency(value) {
@@ -2583,6 +2858,19 @@ function formatCurrency(value) {
 function formatDrawTime(value) {
   const match = drawOptions.find((option) => option.value === value);
   return match ? match.label : value;
+}
+
+function formatEntryCutoffTime(value) {
+  return formatTimeValue(getEntryCutoffValue(value));
+}
+
+function formatTimeValue(value) {
+  const [hourText = "0", minuteText = "00"] = String(value || "").split(":");
+  const hour = Number(hourText) || 0;
+  const minute = leftPad(String(Number(minuteText) || 0), 2, "0");
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const normalizedHour = hour % 12 || 12;
+  return `${normalizedHour}:${minute} ${suffix}`;
 }
 
 function escapeHtml(value) {

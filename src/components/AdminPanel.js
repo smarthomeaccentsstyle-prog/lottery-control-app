@@ -25,12 +25,12 @@ const JURI_RATE = 10;
 const JURI_PAYOUT = 600;
 
 const drawOptions = [
-  { value: "11:00", label: "11:00 AM" },
-  { value: "13:00", label: "1:00 PM" },
-  { value: "15:00", label: "3:00 PM" },
-  { value: "18:00", label: "6:00 PM" },
-  { value: "19:00", label: "7:00 PM" },
-  { value: "20:00", label: "8:00 PM" },
+  { value: "11:00", label: "11:00 AM", cutoff: "11:10" },
+  { value: "13:00", label: "1:00 PM", cutoff: "12:58" },
+  { value: "15:00", label: "3:00 PM", cutoff: "15:10" },
+  { value: "18:00", label: "6:00 PM", cutoff: "17:58" },
+  { value: "19:00", label: "7:00 PM", cutoff: "19:10" },
+  { value: "20:00", label: "8:00 PM", cutoff: "19:58" },
 ];
 
 const sidebarItems = [
@@ -1427,9 +1427,13 @@ function getRiskTone(riskValue, collectionValue) {
 }
 
 function isLocked(ticket) {
-  const now = new Date();
-  const draw = new Date(`${ticket.date}T${ticket.drawTime}:00`);
-  return now > draw;
+  if (!ticket || !ticket.date || !ticket.drawTime) {
+    return false;
+  }
+
+  const cutoffValue = getEntryCutoffValue(ticket.drawTime);
+  const draw = new Date(`${ticket.date}T${cutoffValue}:00`);
+  return new Date() > draw;
 }
 
 function buildResultKey(date, drawTime) {
@@ -1450,6 +1454,11 @@ function formatDate(dateValue) {
 function formatDrawTime(value) {
   const match = drawOptions.find((option) => option.value === value);
   return match ? match.label : value;
+}
+
+function getEntryCutoffValue(drawTime) {
+  const match = drawOptions.find((option) => option.value === drawTime);
+  return match && match.cutoff ? match.cutoff : drawTime;
 }
 
 function leftPad(value, targetLength, fillCharacter) {

@@ -32,6 +32,14 @@ const STATIC_DIR = path.join(BUILD_DIR, "static");
 const activeSessions = new Map();
 const AUTH_REQUIRED_MESSAGE = "Session expired. Please login again.";
 const FORBIDDEN_MESSAGE = "You do not have permission for this action.";
+const DRAW_ENTRY_CUTOFFS = {
+  "11:00": "11:10",
+  "13:00": "12:58",
+  "15:00": "15:10",
+  "18:00": "17:58",
+  "19:00": "19:10",
+  "20:00": "19:58",
+};
 
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(res);
@@ -762,7 +770,7 @@ function prepareTicketUpdatePayload(existingTicket, input = {}) {
   }
 
   if (!isClaimOnlyTicketPatch(input) && isTicketLocked(existingTicket)) {
-    throw new ValidationError("Ticket is locked. Edit or cancel is allowed only before draw time.");
+    throw new ValidationError("Ticket is locked. Edit or cancel is allowed only before last entry time.");
   }
 
   if (isClaimOnlyTicketPatch(input)) {
@@ -806,7 +814,7 @@ function isTicketLocked(ticket) {
     return false;
   }
 
-  const drawMoment = new Date(`${ticket.date}T${ticket.drawTime}:00`);
+  const drawMoment = new Date(`${ticket.date}T${getEntryCutoffValue(ticket.drawTime)}:00`);
   return new Date() > drawMoment;
 }
 
@@ -820,24 +828,38 @@ function normalizeTicketDate(value) {
   return nextValue || formatDate(new Date());
 }
 
+function getLatestAllowedTicketDate() {
+  const today = parseDateString(formatDate(new Date()));
+  return formatDate(addDays(today, 1));
+}
+
 function getNextValidTicketDate(dateString, drawTime) {
   const today = parseDateString(formatDate(new Date()));
+  const tomorrow = parseDateString(getLatestAllowedTicketDate());
   let candidate = parseDateString(dateString) || today;
 
   if (candidate < today) {
     candidate = new Date(today);
   }
 
-  while (isDrawClosedForDate(candidate, drawTime)) {
-    candidate = addDays(candidate, 1);
+  if (candidate > tomorrow) {
+    candidate = new Date(tomorrow);
+  }
+
+  if (isDrawClosedForDate(candidate, drawTime)) {
+    candidate = new Date(tomorrow);
   }
 
   return formatDate(candidate);
 }
 
 function isDrawClosedForDate(dateValue, drawTime) {
-  const drawMoment = new Date(`${formatDate(dateValue)}T${drawTime}:00`);
+  const drawMoment = new Date(`${formatDate(dateValue)}T${getEntryCutoffValue(drawTime)}:00`);
   return drawMoment <= new Date();
+}
+
+function getEntryCutoffValue(drawTime) {
+  return DRAW_ENTRY_CUTOFFS[String(drawTime || "").trim()] || String(drawTime || "").trim() || "11:00";
 }
 
 function parseDateString(dateString) {

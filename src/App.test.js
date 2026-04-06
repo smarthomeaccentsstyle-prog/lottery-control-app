@@ -117,6 +117,12 @@ function mockSystemDate(isoString) {
   };
 }
 
+function setInputValue(element, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  descriptor.set.call(element, value);
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 beforeEach(() => {
   localStorage.clear();
   setPathname("/");
@@ -225,7 +231,44 @@ test("opens new ticket with the next available draw by default", async () => {
   const root = await renderApp(container);
 
   expect(container.textContent).toContain("Create New Ticket");
-  expect(container.textContent).toContain("8:00 PM draw is open for 2026-04-06.");
+  expect(container.textContent).toContain("8:00 PM ticket entry is open for 2026-04-06 until 7:58 PM.");
+  await unmountApp(root);
+});
+
+test("keeps 11 AM ticket open until 11:10 AM cutoff", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  mockSystemDate("2026-04-06T11:05:00");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      tickets: [],
+      winResults: {},
+      customerName: "",
+      customerPhone: "",
+      date: "2026-04-06",
+      drawTime: "11:00",
+      paymentMode: "Paid",
+      paidAmount: "",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const bookingDateInput = container.querySelector('input[type="date"]');
+
+  expect(container.textContent).toContain("11:00 AM ticket entry is open for 2026-04-06 until 11:10 AM.");
+  expect(bookingDateInput.value).toBe("2026-04-06");
   await unmountApp(root);
 });
 
@@ -263,6 +306,81 @@ test("moves expired draw booking to the next day", async () => {
 
   expect(container.textContent).toContain("Booking For: 2026-04-07");
   expect(bookingDateInput.value).toBe("2026-04-07");
+  await unmountApp(root);
+});
+
+test("moves 1 PM ticket to next day after 12:58 PM cutoff", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  mockSystemDate("2026-04-06T12:59:00");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      tickets: [],
+      winResults: {},
+      customerName: "",
+      customerPhone: "",
+      date: "2026-04-06",
+      drawTime: "13:00",
+      paymentMode: "Paid",
+      paidAmount: "",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const bookingDateInput = container.querySelector('input[type="date"]');
+
+  expect(container.textContent).toContain("Booking For: 2026-04-07");
+  expect(bookingDateInput.value).toBe("2026-04-07");
+  await unmountApp(root);
+});
+
+test("clamps seller booking date to only tomorrow when a later future date is stored", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  mockSystemDate("2026-04-06T09:00:00");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      tickets: [],
+      winResults: {},
+      customerName: "",
+      customerPhone: "",
+      date: "2026-04-10",
+      drawTime: "11:00",
+      paymentMode: "Paid",
+      paidAmount: "",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const bookingDateInput = container.querySelector('input[type="date"]');
+
+  expect(bookingDateInput.value).toBe("2026-04-07");
+  expect(bookingDateInput.max).toBe("2026-04-07");
+  expect(container.textContent).toContain("Booking For: 2026-04-07");
   await unmountApp(root);
 });
 
@@ -342,6 +460,259 @@ test("renders ticket store with saved ticket format", async () => {
   expect(container.textContent).toContain("3rd");
   expect(container.textContent).toContain("4th");
   expect(container.textContent).toContain("12-21 -1");
+  await unmountApp(root);
+});
+
+test("claims a winning ticket once from the ticket id claim desk", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const winningTicket = {
+    id: 777001,
+    customerName: "Lucky Buyer",
+    customerPhone: "",
+    date: "2026-04-06",
+    drawTime: "11:00",
+    paymentMode: "Paid",
+    paidAmount: 10,
+    dueAmount: 0,
+    total: 10,
+    commission: 2.65,
+    claimed: false,
+    payout: 0,
+    winningNumber: "",
+    createdAt: "2026-04-06T08:00:00.000Z",
+    sellerUsername: "seller1",
+    cancelled: false,
+    cancelledAt: "",
+    items: [{ type: "juri", num: "12", qty: 1, label: "Juri 12", total: 10, profit: 2.65 }],
+  };
+  const results = [{ date: "2026-04-06", drawTime: "11:00", winningNumber: "12" }];
+  let tickets = [winningTicket];
+  const baseFetchMock = createSuccessFetchMock();
+
+  global.fetch = jest.fn((url, options = {}) => {
+    const endpoint = String(url);
+    const method = options.method || "GET";
+
+    if (endpoint.includes(`/tickets/${winningTicket.id}`) && method === "PATCH") {
+      tickets = tickets.map((ticket) =>
+        ticket.id === winningTicket.id
+          ? { ...ticket, claimed: true, payout: 600, winningNumber: "12" }
+          : ticket
+      );
+      return createJsonResponse({ ticket: tickets[0] });
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets });
+    }
+
+    if (endpoint.includes("/results")) {
+      return createJsonResponse({ results });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const claimsButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Claims"
+  );
+
+  await act(async () => {
+    claimsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const claimInput = container.querySelector('input[placeholder="Enter printed ticket ID"]');
+
+  await act(async () => {
+    setInputValue(claimInput, String(winningTicket.id));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Winner found");
+  expect(container.textContent).toContain("Lucky Buyer");
+  expect(container.textContent).toContain("₹600");
+
+  const claimTicketButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Claim Ticket"
+  );
+
+  await act(async () => {
+    claimTicketButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Claim completed");
+  expect(container.textContent).toContain("Claimed History");
+
+  const refreshedClaimInput = container.querySelector('input[placeholder="Enter printed ticket ID"]');
+
+  await act(async () => {
+    setInputValue(refreshedClaimInput, String(winningTicket.id));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Already claimed");
+  expect(container.textContent).toContain("One ticket ID can be claimed only once.");
+  await unmountApp(root);
+});
+
+test("shows sorry next time for a non-winning claim lookup", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const losingTicket = {
+    id: 777002,
+    customerName: "Try Again",
+    customerPhone: "",
+    date: "2026-04-06",
+    drawTime: "15:00",
+    paymentMode: "Paid",
+    paidAmount: 11,
+    dueAmount: 0,
+    total: 11,
+    commission: 0.9,
+    claimed: false,
+    payout: 0,
+    winningNumber: "",
+    createdAt: "2026-04-06T12:00:00.000Z",
+    sellerUsername: "seller1",
+    cancelled: false,
+    cancelledAt: "",
+    items: [{ type: "single3", num: "5", qty: 1, label: "3rd House 5", total: 11, profit: 0.9 }],
+  };
+  const results = [{ date: "2026-04-06", drawTime: "15:00", winningNumber: "12" }];
+  const baseFetchMock = createSuccessFetchMock();
+
+  global.fetch = jest.fn((url) => {
+    const endpoint = String(url);
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets: [losingTicket] });
+    }
+
+    if (endpoint.includes("/results")) {
+      return createJsonResponse({ results });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const claimsButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Claims"
+  );
+
+  await act(async () => {
+    claimsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const claimInput = container.querySelector('input[placeholder="Enter printed ticket ID"]');
+
+  await act(async () => {
+    setInputValue(claimInput, String(losingTicket.id));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Sorry, next time.");
+  expect(container.textContent).toContain("This ticket did not win for the selected result.");
+  await unmountApp(root);
+});
+
+test("shows admin confirmed results as claim ready in the seller results tab", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  mockSystemDate("2026-04-06T19:30:00");
+  const winningTicket = {
+    id: 777003,
+    customerName: "Result Winner",
+    customerPhone: "",
+    date: "2026-04-06",
+    drawTime: "19:00",
+    paymentMode: "Paid",
+    paidAmount: 10,
+    dueAmount: 0,
+    total: 10,
+    commission: 2.65,
+    claimed: false,
+    payout: 0,
+    winningNumber: "",
+    createdAt: "2026-04-06T18:00:00.000Z",
+    sellerUsername: "seller1",
+    cancelled: false,
+    cancelledAt: "",
+    items: [{ type: "juri", num: "12", qty: 1, label: "Juri 12", total: 10, profit: 2.65 }],
+  };
+  const results = [{ date: "2026-04-06", drawTime: "19:00", winningNumber: "12" }];
+  const baseFetchMock = createSuccessFetchMock();
+
+  global.fetch = jest.fn((url) => {
+    const endpoint = String(url);
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets: [winningTicket] });
+    }
+
+    if (endpoint.includes("/results")) {
+      return createJsonResponse({ results });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const resultsButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Results"
+  );
+
+  await act(async () => {
+    resultsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Game Results");
+  expect(container.textContent).toContain("7:00 PM");
+  expect(container.textContent).toContain("Claim Ready");
+  expect(container.textContent).toContain("Admin confirmed result. 1 winning ticket(s) can be claimed now.");
+  expect(container.textContent).toContain("₹600.00");
   await unmountApp(root);
 });
 
