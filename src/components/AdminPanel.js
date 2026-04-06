@@ -748,6 +748,8 @@ export default function AdminPanel({ session, onLogout }) {
                       onChange={(event) =>
                         setSellerForm((current) => ({ ...current, name: event.target.value }))
                       }
+                      autoCapitalize="words"
+                      autoCorrect="off"
                       placeholder="Name"
                     />
                     <input
@@ -767,6 +769,10 @@ export default function AdminPanel({ session, onLogout }) {
                           username: event.target.value,
                         }))
                       }
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="off"
+                      spellCheck={false}
                       placeholder="Username"
                     />
                     <input
@@ -778,6 +784,10 @@ export default function AdminPanel({ session, onLogout }) {
                           password: event.target.value,
                         }))
                       }
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="new-password"
+                      spellCheck={false}
                       placeholder="Password"
                     />
                     <input

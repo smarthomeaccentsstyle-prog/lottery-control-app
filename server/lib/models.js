@@ -43,7 +43,10 @@ function normalizeSeller(input = {}, index = 0) {
     name: input.name || `Seller ${index + 1}`,
     mobile: input.mobile || "",
     username: input.username || `seller${index + 1}`,
-    password: input.password || "1234",
+    password:
+      typeof input.password === "string"
+        ? input.password
+        : DEFAULT_SELLERS[0].password,
     active: input.active !== undefined ? Boolean(input.active) : true,
     singleCommission:
       typeof input.singleCommission === "number"

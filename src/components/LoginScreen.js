@@ -34,7 +34,10 @@ export default function LoginScreen({
             placeholder={isAdmin ? "Admin Username" : "Seller Username"}
             value={username}
             onChange={(event) => setUsername(event.target.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
             autoComplete="username"
+            spellCheck={false}
             disabled={loading}
           />
 
@@ -43,7 +46,10 @@ export default function LoginScreen({
             placeholder="Password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
             autoComplete="current-password"
+            spellCheck={false}
             disabled={loading}
           />
 

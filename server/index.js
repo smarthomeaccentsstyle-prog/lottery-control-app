@@ -156,8 +156,18 @@ const server = http.createServer(async (req, res) => {
       }
 
       const body = await readJsonBody(req);
+      const payload = sanitizeSellerPayload(body);
+
+      validateRequiredSellerFields(payload);
+
       const db = updateDb((current) => {
-        current.sellers.push(createSeller(body, current.sellers));
+        ensureUniqueSellerUsername(current.sellers, payload.username);
+        current.sellers.push(
+          createSeller({
+            ...payload,
+            active: payload.active !== undefined ? payload.active : true,
+          }, current.sellers)
+        );
         return current;
       });
 
@@ -174,10 +184,27 @@ const server = http.createServer(async (req, res) => {
 
       const sellerId = extractId(pathname, "/api/sellers/");
       const body = await readJsonBody(req);
+      const payload = sanitizeSellerPayload(body, {
+        partial: true,
+      });
 
       const db = updateDb((current) => {
+        const existingSeller = current.sellers.find(
+          (seller) => String(seller.id) === sellerId
+        );
+
+        if (!existingSeller) {
+          throw new Error("Seller not found");
+        }
+
+        validateSellerUpdatePayload(payload);
+
+        if (payload.username) {
+          ensureUniqueSellerUsername(current.sellers, payload.username, sellerId);
+        }
+
         current.sellers = current.sellers.map((seller) =>
-          String(seller.id) === sellerId ? updateSeller(seller, body) : seller
+          String(seller.id) === sellerId ? updateSeller(seller, payload) : seller
         );
         return current;
       });
@@ -538,7 +565,24 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (error && error.message === "Ticket not found") {
+    if (error instanceof ConflictError) {
+      return sendJson(res, 409, {
+        ok: false,
+        message: error.message,
+      });
+    }
+
+    if (error instanceof ValidationError) {
+      return sendJson(res, 400, {
+        ok: false,
+        message: error.message,
+      });
+    }
+
+    if (
+      error &&
+      (error.message === "Ticket not found" || error.message === "Seller not found")
+    ) {
       return sendJson(res, 404, {
         ok: false,
         message: error.message,
@@ -666,6 +710,8 @@ function toPublicSeller(seller = {}) {
 }
 
 class ForbiddenError extends Error {}
+class ValidationError extends Error {}
+class ConflictError extends Error {}
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -690,6 +736,102 @@ function readJsonBody(req) {
 
     req.on("error", reject);
   });
+}
+
+function sanitizeSellerPayload(input = {}, options = {}) {
+  const partial = Boolean(options.partial);
+  const payload = {};
+
+  if (!partial || input.name !== undefined) {
+    payload.name = String(input.name || "").trim();
+  }
+
+  if (!partial || input.mobile !== undefined) {
+    payload.mobile = String(input.mobile || "").trim();
+  }
+
+  if (!partial || input.username !== undefined) {
+    payload.username = String(input.username || "").trim();
+  }
+
+  if (!partial || input.password !== undefined) {
+    payload.password = String(input.password || "").trim();
+  }
+
+  if (!partial || input.singleCommission !== undefined) {
+    payload.singleCommission = sanitizePositiveNumber(input.singleCommission);
+  }
+
+  if (!partial || input.juriCommission !== undefined) {
+    payload.juriCommission = sanitizePositiveNumber(input.juriCommission);
+  }
+
+  if (input.active !== undefined) {
+    payload.active = Boolean(input.active);
+  }
+
+  return payload;
+}
+
+function validateRequiredSellerFields(payload = {}) {
+  if (!payload.name || !payload.username || !payload.password) {
+    throw new ValidationError("Name, username and password are required");
+  }
+
+  validateSellerCommissionFields(payload);
+}
+
+function validateSellerUpdatePayload(payload = {}) {
+  if (payload.password !== undefined && !payload.password) {
+    throw new ValidationError("Password is required");
+  }
+
+  if (payload.username !== undefined && !payload.username) {
+    throw new ValidationError("Username is required");
+  }
+
+  if (payload.name !== undefined && !payload.name) {
+    throw new ValidationError("Name is required");
+  }
+
+  validateSellerCommissionFields(payload);
+}
+
+function validateSellerCommissionFields(payload = {}) {
+  if (
+    payload.singleCommission !== undefined &&
+    (!Number.isFinite(payload.singleCommission) || payload.singleCommission <= 0)
+  ) {
+    throw new ValidationError("Set valid single commission");
+  }
+
+  if (
+    payload.juriCommission !== undefined &&
+    (!Number.isFinite(payload.juriCommission) || payload.juriCommission <= 0)
+  ) {
+    throw new ValidationError("Set valid juri commission");
+  }
+}
+
+function sanitizePositiveNumber(value) {
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : 0;
+}
+
+function ensureUniqueSellerUsername(sellers = [], username, excludedId = null) {
+  const normalizedUsername = normalizeUsername(username);
+
+  const duplicate = sellers.find((seller) => {
+    if (excludedId !== null && String(seller.id) === String(excludedId)) {
+      return false;
+    }
+
+    return normalizeUsername(seller.username) === normalizedUsername;
+  });
+
+  if (duplicate) {
+    throw new ConflictError("Username already exists");
+  }
 }
 
 function getNetworkAddresses() {
