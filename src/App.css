@@ -116,6 +116,55 @@ video {
   margin-bottom: 18px;
 }
 
+.seller-priority-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+button.seller-priority-card {
+  min-height: 116px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  text-align: left;
+  padding: 18px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(20, 28, 43, 0.96), rgba(15, 22, 36, 0.96));
+  border: 1px solid rgba(36, 50, 78, 0.92);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22);
+}
+
+.seller-priority-card span {
+  color: #8fa2c4;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.seller-priority-card strong {
+  color: #f8fbff;
+  font-size: clamp(1.35rem, 3vw, 1.7rem);
+}
+
+.seller-priority-card small {
+  color: #9fb1d3;
+  line-height: 1.5;
+}
+
+button.seller-priority-card.active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.96), rgba(59, 130, 246, 0.96));
+  border-color: transparent;
+}
+
+.seller-priority-card.active span,
+.seller-priority-card.active strong,
+.seller-priority-card.active small {
+  color: #ffffff;
+}
+
 .summary-card {
   background: linear-gradient(180deg, rgba(20, 28, 43, 0.96), rgba(15, 22, 36, 0.96));
   border: 1px solid rgba(36, 50, 78, 0.92);
@@ -625,6 +674,10 @@ button {
   margin-bottom: 14px;
 }
 
+.form-row.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .form-row.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -710,18 +763,52 @@ textarea::placeholder {
   gap: 10px;
 }
 
+.single-focus-banner {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(18, 29, 48, 0.96), rgba(10, 17, 29, 0.98));
+  border: 1px solid rgba(36, 50, 78, 0.95);
+}
+
+.single-focus-banner span,
+.single-focus-banner small {
+  color: #8fa2c4;
+  font-size: 12px;
+}
+
+.single-focus-banner strong {
+  color: #f8fbff;
+  font-size: 20px;
+}
+
 .single-box {
   background: rgba(10, 17, 29, 0.98);
   border: 1px solid rgba(36, 50, 78, 0.95);
   border-radius: 16px;
   padding: 12px;
+  min-height: 94px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  text-align: left;
+  box-shadow: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
-.single-box:focus-within {
+.single-box:hover,
+.single-box:focus-visible,
+.single-box.active {
   border-color: rgba(96, 165, 250, 0.92);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
   background: rgba(14, 24, 40, 0.98);
+}
+
+.single-box.filled {
+  border-color: rgba(59, 130, 246, 0.46);
 }
 
 .single-box span {
@@ -737,23 +824,152 @@ textarea::placeholder {
   margin-bottom: 10px;
 }
 
-.single-box input {
-  min-height: 48px;
-  padding: 10px 12px;
-  text-align: center;
-  background: rgba(18, 29, 48, 0.98);
-  font-size: clamp(1rem, 2.5vw, 1.125rem);
+.single-box strong {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: #f8fbff;
+  font-size: clamp(1.15rem, 2.8vw, 1.3rem);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
-.single-box input::placeholder {
-  color: #91a6cb;
+.fast-entry-banner {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(14, 24, 40, 0.98);
+  border: 1px solid rgba(59, 130, 246, 0.22);
+}
+
+.fast-entry-banner strong {
+  display: block;
+  color: #f8fbff;
+  margin-bottom: 6px;
+}
+
+.fast-entry-banner span {
+  color: #9fb1d3;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .bulk-textarea {
   margin-bottom: 10px;
   min-height: 132px;
+}
+
+.fast-keypad-shell {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.fast-keypad-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fast-keypad-shortcut,
+.fast-keypad-btn,
+.juri-draft-card {
+  background: rgba(10, 17, 29, 0.98);
+  border: 1px solid rgba(36, 50, 78, 0.95);
+  color: #dbe6ff;
+  box-shadow: none;
+}
+
+.fast-keypad-shortcut {
+  min-height: 42px;
+  border-radius: 14px;
+}
+
+.fast-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fast-keypad-btn {
+  min-height: 58px;
+  border-radius: 18px;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.fast-keypad-btn.danger {
+  border-color: rgba(239, 68, 68, 0.38);
+  color: #ffb7b7;
+}
+
+.fast-keypad-primary {
+  width: 100%;
+}
+
+.juri-draft-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.juri-draft-card {
+  min-height: 86px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 18px;
+}
+
+.juri-draft-card.active {
+  border-color: rgba(96, 165, 250, 0.92);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+  background: rgba(14, 24, 40, 0.98);
+}
+
+.juri-draft-card span {
+  color: #8fa2c4;
+  font-size: 12px;
+}
+
+.juri-draft-card strong {
+  color: #f8fbff;
+  font-size: clamp(1.25rem, 3vw, 1.5rem);
+}
+
+.juri-entry-preview,
+.bulk-entry-backup {
+  margin-top: 16px;
+}
+
+.juri-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.juri-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(10, 17, 29, 0.98);
+  border: 1px solid rgba(36, 50, 78, 0.95);
+}
+
+.juri-chip span {
+  color: #8fa2c4;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.juri-chip strong {
+  color: #f8fbff;
 }
 
 .booking-banner {
@@ -1342,6 +1558,15 @@ textarea::placeholder {
     overscroll-behavior-x: contain;
   }
 
+  .seller-priority-strip {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(220px, 76vw);
+    overflow-x: auto;
+    padding: 0 2px 6px;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+
   .new-ticket-mobile-nav {
     position: sticky;
     top: calc(12px + env(safe-area-inset-top));
@@ -1401,6 +1626,7 @@ textarea::placeholder {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .form-row.two,
   .form-row.three,
   .input-layout,
   .admin-insight-grid,
@@ -1444,6 +1670,10 @@ textarea::placeholder {
 
   .ticket-save-card {
     padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .seller-priority-card {
+    scroll-snap-align: start;
   }
 
   .ticket-save-actions {
@@ -1530,6 +1760,7 @@ textarea::placeholder {
   .single-box {
     padding: 8px;
     border-radius: 14px;
+    min-height: 84px;
   }
 
   .single-box span {
@@ -1540,9 +1771,8 @@ textarea::placeholder {
     font-size: 14px;
   }
 
-  .single-box input {
-    min-height: 40px;
-    padding: 8px 6px;
+  .single-box strong {
+    font-size: 18px;
   }
 
   .ticket-section-block,
@@ -1578,6 +1808,7 @@ textarea::placeholder {
 
   .mini-summary,
   .admin-summary-grid,
+  .seller-priority-strip,
   .status-guide,
   .preview-grid,
   .report-range-grid,
@@ -1586,6 +1817,13 @@ textarea::placeholder {
   .report-panels,
   .admin-workspace-grid {
     grid-template-columns: 1fr;
+  }
+
+  .seller-priority-strip {
+    grid-auto-flow: row;
+    grid-auto-columns: unset;
+    overflow-x: visible;
+    padding-bottom: 0;
   }
 
   .hero-actions {
@@ -1640,6 +1878,11 @@ textarea::placeholder {
     font-size: 11px;
   }
 
+  .juri-draft-grid,
+  .fast-keypad-shortcuts {
+    grid-template-columns: 1fr;
+  }
+
   .action-bar,
   .footer-actions,
   .inline-actions,
@@ -1667,6 +1910,7 @@ textarea::placeholder {
 
   .single-box {
     padding: 7px;
+    min-height: 78px;
   }
 
   .single-box span {
@@ -1676,11 +1920,8 @@ textarea::placeholder {
     font-size: 13px;
   }
 
-  .single-box input {
-    min-height: 36px;
-    padding: 6px 4px;
+  .single-box strong {
     font-size: 16px;
-    border-radius: 12px;
   }
 
   .ticket-format-grid {
@@ -1703,6 +1944,10 @@ textarea::placeholder {
     grid-template-columns: 1fr;
     bottom: calc(82px + env(safe-area-inset-bottom));
     padding: 8px;
+  }
+
+  .fast-keypad-btn {
+    min-height: 52px;
   }
 
   .seller-mobile-dock {

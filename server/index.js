@@ -260,15 +260,17 @@ const server = http.createServer(async (req, res) => {
 
       const body = await readJsonBody(req);
       const db = updateDb((current) => {
+        const ticketPayload = prepareTicketCreatePayload(
+          authSession.role === "seller"
+            ? {
+                ...body,
+                sellerUsername: authSession.username,
+              }
+            : body
+        );
+
         current.tickets.unshift(
-          createTicket(
-            authSession.role === "seller"
-              ? {
-                  ...body,
-                  sellerUsername: authSession.username,
-                }
-              : body
-          )
+          createTicket(ticketPayload)
         );
         return current;
       });
@@ -303,16 +305,17 @@ const server = http.createServer(async (req, res) => {
           throw new ForbiddenError(FORBIDDEN_MESSAGE);
         }
 
+        const { sellerUsername: _sellerUsername, ...safeTicketBody } = body || {};
+        const ticketPayload = prepareTicketUpdatePayload(
+          existingTicket,
+          safeTicketBody
+        );
+
         current.tickets = current.tickets.map((ticket) =>
           String(ticket.id) === ticketId
             ? updateTicket(
                 ticket,
-                authSession.role === "seller"
-                  ? {
-                      ...body,
-                      sellerUsername: ticket.sellerUsername,
-                    }
-                  : body
+                ticketPayload
               )
             : ticket
         );
@@ -736,6 +739,124 @@ function readJsonBody(req) {
 
     req.on("error", reject);
   });
+}
+
+function prepareTicketCreatePayload(input = {}) {
+  return applyTicketBookingCutoff({
+    ...input,
+    drawTime: normalizeDrawTime(input.drawTime),
+  });
+}
+
+function prepareTicketUpdatePayload(existingTicket, input = {}) {
+  if (!existingTicket) {
+    throw new Error("Ticket not found");
+  }
+
+  if (existingTicket.cancelled) {
+    throw new ValidationError("Cancelled ticket cannot be changed");
+  }
+
+  if (existingTicket.claimed && !isClaimOnlyTicketPatch(input)) {
+    throw new ValidationError("Claimed ticket cannot be edited or cancelled");
+  }
+
+  if (!isClaimOnlyTicketPatch(input) && isTicketLocked(existingTicket)) {
+    throw new ValidationError("Ticket is locked. Edit or cancel is allowed only before draw time.");
+  }
+
+  if (isClaimOnlyTicketPatch(input)) {
+    return {
+      claimed: Boolean(input.claimed),
+      payout: Number(input.payout || 0),
+      winningNumber: String(input.winningNumber || "").replace(/[^\d]/g, "").slice(0, 2),
+    };
+  }
+
+  return applyTicketBookingCutoff({
+    ...input,
+    drawTime: normalizeDrawTime(input.drawTime || existingTicket.drawTime),
+    date: normalizeTicketDate(input.date || existingTicket.date),
+  });
+}
+
+function applyTicketBookingCutoff(input = {}) {
+  const drawTime = normalizeDrawTime(input.drawTime);
+  const requestedDate = normalizeTicketDate(input.date);
+
+  return {
+    ...input,
+    date: getNextValidTicketDate(requestedDate, drawTime),
+    drawTime,
+  };
+}
+
+function isClaimOnlyTicketPatch(input = {}) {
+  const keys = Object.keys(input).filter((key) => input[key] !== undefined);
+
+  if (!keys.length) {
+    return false;
+  }
+
+  return keys.every((key) => ["claimed", "payout", "winningNumber"].includes(key));
+}
+
+function isTicketLocked(ticket) {
+  if (!ticket || !ticket.date || !ticket.drawTime) {
+    return false;
+  }
+
+  const drawMoment = new Date(`${ticket.date}T${ticket.drawTime}:00`);
+  return new Date() > drawMoment;
+}
+
+function normalizeDrawTime(value) {
+  const nextValue = String(value || "").trim();
+  return nextValue || "11:00";
+}
+
+function normalizeTicketDate(value) {
+  const nextValue = String(value || "").trim();
+  return nextValue || formatDate(new Date());
+}
+
+function getNextValidTicketDate(dateString, drawTime) {
+  const today = parseDateString(formatDate(new Date()));
+  let candidate = parseDateString(dateString) || today;
+
+  if (candidate < today) {
+    candidate = new Date(today);
+  }
+
+  while (isDrawClosedForDate(candidate, drawTime)) {
+    candidate = addDays(candidate, 1);
+  }
+
+  return formatDate(candidate);
+}
+
+function isDrawClosedForDate(dateValue, drawTime) {
+  const drawMoment = new Date(`${formatDate(dateValue)}T${drawTime}:00`);
+  return drawMoment <= new Date();
+}
+
+function parseDateString(dateString) {
+  const parsed = new Date(`${dateString}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function addDays(dateValue, days) {
+  const next = new Date(dateValue);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatDate(dateValue) {
+  return [
+    dateValue.getFullYear(),
+    String(dateValue.getMonth() + 1).padStart(2, "0"),
+    String(dateValue.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 function sanitizeSellerPayload(input = {}, options = {}) {

@@ -33,12 +33,12 @@ const JURI_RATE = 10;
 const JURI_PAYOUT = 600;
 
 const tabs = [
-  "Dashboard",
   "New Ticket",
   "Ticket Store",
-  "Reports",
-  "Result Checker",
   "Claims",
+  "Dashboard",
+  "Result Checker",
+  "Reports",
   "Due",
 ];
 
@@ -72,6 +72,7 @@ const mobileNewTicketSections = [
 const emptySingle = () => Array(10).fill("");
 
 function SellerPanel({ session, onLogout, sellerSyncToken }) {
+  const defaultBookingSelection = useMemo(() => getNextAvailableDrawSelection(), []);
   const persisted = useMemo(
     () =>
       load(SELLER_PANEL_STORAGE_KEY, {
@@ -79,15 +80,15 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         winResults: {},
         customerName: "",
         customerPhone: "",
-        date: getTodayString(),
-        drawTime: "11:00",
+        date: defaultBookingSelection.date,
+        drawTime: defaultBookingSelection.drawTime,
         paymentMode: "Paid",
         paidAmount: "",
       }),
-    []
+    [defaultBookingSelection.date, defaultBookingSelection.drawTime]
   );
 
-  const [activeTab, setActiveTab] = useState("Dashboard");
+  const [activeTab, setActiveTab] = useState("New Ticket");
   const [tickets, setTickets] = useState(() => normalizeTickets(persisted.tickets));
   const [winResults, setWinResults] = useState(persisted.winResults || {});
   const [third, setThird] = useState(emptySingle);
@@ -95,9 +96,14 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [juriText, setJuriText] = useState("");
   const [customerName, setCustomerName] = useState(persisted.customerName || "");
   const [customerPhone, setCustomerPhone] = useState(persisted.customerPhone || "");
-  const [drawTime, setDrawTime] = useState(persisted.drawTime || "11:00");
+  const [drawTime, setDrawTime] = useState(
+    persisted.drawTime || defaultBookingSelection.drawTime
+  );
   const [date, setDate] = useState(() =>
-    getNextValidBookingDate(persisted.date || getTodayString(), persisted.drawTime || "11:00")
+    getNextValidBookingDate(
+      persisted.date || defaultBookingSelection.date,
+      persisted.drawTime || defaultBookingSelection.drawTime
+    )
   );
   const [editingTicketId, setEditingTicketId] = useState(null);
   const [paymentMode, setPaymentMode] = useState(persisted.paymentMode || "Paid");
@@ -110,6 +116,11 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [reportSummaryMap, setReportSummaryMap] = useState(() => buildEmptyReportSummaryMap());
   const [mobileTicketSection, setMobileTicketSection] = useState("details");
   const [mobileHouseView, setMobileHouseView] = useState("third");
+  const [selectedThirdDigit, setSelectedThirdDigit] = useState(0);
+  const [selectedFourthDigit, setSelectedFourthDigit] = useState(0);
+  const [juriDraftNumber, setJuriDraftNumber] = useState("");
+  const [juriDraftQty, setJuriDraftQty] = useState("");
+  const [activeJuriField, setActiveJuriField] = useState("number");
   const sellerSyncRef = useRef({
     ticketsSignature: buildSyncSignature(normalizeTickets(persisted.tickets)),
     resultsSignature: buildSyncSignature(persisted.winResults || {}),
@@ -475,14 +486,190 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     () => activeTickets.filter((ticket) => ticket.dueAmount > 0),
     [activeTickets]
   );
+  const cancellableTicketCount = useMemo(
+    () => activeTickets.filter((ticket) => canCancelTicket(ticket)).length,
+    [activeTickets]
+  );
+  const pendingClaimAmount = useMemo(
+    () =>
+      claimableTickets.reduce((sum, ticket) => sum + Number(ticket.resultInfo.payout || 0), 0),
+    [claimableTickets]
+  );
 
   const updateSingle = (setter, index, value) => {
     setter((current) => {
       const next = [...current];
-      next[index] = value.replace(/[^\d]/g, "");
+      next[index] = sanitizeQuantityValue(value);
       return next;
     });
   };
+
+  const setSingleDigitValue = useCallback((house, digit, value) => {
+    updateSingle(house === "third" ? setThird : setFourth, digit, value);
+  }, []);
+
+  const setSelectedSingleDigit = useCallback((house, digit) => {
+    if (house === "third") {
+      setSelectedThirdDigit(digit);
+      setMobileHouseView("third");
+      return;
+    }
+
+    setSelectedFourthDigit(digit);
+    setMobileHouseView("fourth");
+  }, []);
+
+  const handleSinglePadInput = useCallback(
+    (house, action) => {
+      const selectedDigit = house === "third" ? selectedThirdDigit : selectedFourthDigit;
+      const values = house === "third" ? third : fourth;
+      const currentValue = values[selectedDigit] || "";
+
+      if (/^\d$/.test(action)) {
+        setSingleDigitValue(house, selectedDigit, appendDigitValue(currentValue, action));
+        return;
+      }
+
+      if (action === "del") {
+        setSingleDigitValue(house, selectedDigit, currentValue.slice(0, -1));
+        return;
+      }
+
+      if (action === "clear") {
+        setSingleDigitValue(house, selectedDigit, "");
+        return;
+      }
+
+      if (action === "+1" || action === "+5") {
+        const increment = action === "+5" ? 5 : 1;
+        setSingleDigitValue(
+          house,
+          selectedDigit,
+          String(Number(currentValue || 0) + increment)
+        );
+        return;
+      }
+
+      if (action === "next") {
+        setSelectedSingleDigit(house, (selectedDigit + 1) % 10);
+      }
+    },
+    [
+      fourth,
+      selectedFourthDigit,
+      selectedThirdDigit,
+      setSelectedSingleDigit,
+      setSingleDigitValue,
+      third,
+    ]
+  );
+
+  const clearJuriDraft = useCallback(() => {
+    setJuriDraftNumber("");
+    setJuriDraftQty("");
+    setActiveJuriField("number");
+  }, []);
+
+  const addJuriDraftEntry = useCallback(() => {
+    const normalizedNumber = leftPad(juriDraftNumber || "", 2, "0");
+    const qty = sanitizeNumber(juriDraftQty);
+
+    if (!/^\d{2}$/.test(normalizedNumber)) {
+      window.alert("Enter 2 digit juri number");
+      return;
+    }
+
+    if (!qty) {
+      window.alert("Enter juri quantity");
+      return;
+    }
+
+    setJuriText((current) => appendJuriToken(current, `${normalizedNumber}-${qty}`));
+    clearJuriDraft();
+  }, [clearJuriDraft, juriDraftNumber, juriDraftQty]);
+
+  const handleJuriPadInput = useCallback(
+    (action) => {
+      if (/^\d$/.test(action)) {
+        if (activeJuriField === "number") {
+          setJuriDraftNumber((current) => {
+            const next = appendDigitValue(current, action, 2);
+            if (next.length >= 2) {
+              setActiveJuriField("qty");
+            }
+            return next;
+          });
+          return;
+        }
+
+        setJuriDraftQty((current) => appendDigitValue(current, action));
+        return;
+      }
+
+      if (action === "del") {
+        if (activeJuriField === "number") {
+          setJuriDraftNumber((current) => current.slice(0, -1));
+          return;
+        }
+
+        setJuriDraftQty((current) => current.slice(0, -1));
+        return;
+      }
+
+      if (action === "clear") {
+        clearJuriDraft();
+        return;
+      }
+
+      if (action === "add") {
+        addJuriDraftEntry();
+        return;
+      }
+
+      if (action === "undo") {
+        setJuriText((current) => removeLastJuriToken(current));
+      }
+    },
+    [activeJuriField, addJuriDraftEntry, clearJuriDraft]
+  );
+
+  const sellerPriorityActions = useMemo(
+    () => [
+      {
+        title: "Fast New Ticket",
+        hint: `${formatDrawTime(drawTime)} for ${effectiveTicketDate}`,
+        value: `${previewItems.length} item(s)`,
+        action: () => setActiveTab("New Ticket"),
+        active: activeTab === "New Ticket",
+      },
+      {
+        title: "Cancel Tickets",
+        hint: "Open ticket list before cutoff",
+        value: `${cancellableTicketCount} open`,
+        action: () => {
+          setTicketFilter("OPEN");
+          setActiveTab("Ticket Store");
+        },
+        active: activeTab === "Ticket Store",
+      },
+      {
+        title: "Claim Tickets",
+        hint: "Winning tickets ready now",
+        value: `${claimableTickets.length} | ${formatCurrency(pendingClaimAmount)}`,
+        action: () => setActiveTab("Claims"),
+        active: activeTab === "Claims",
+      },
+    ],
+    [
+      activeTab,
+      cancellableTicketCount,
+      claimableTickets.length,
+      drawTime,
+      effectiveTicketDate,
+      pendingClaimAmount,
+      previewItems.length,
+    ]
+  );
 
   const focusMobileTicketSection = useCallback((section) => {
     setMobileTicketSection(section);
@@ -520,16 +707,21 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   );
 
   const clearForm = () => {
+    const nextSelection = getNextAvailableDrawSelection();
     setThird(emptySingle());
     setFourth(emptySingle());
     setJuriText("");
     setCustomerName("");
     setCustomerPhone("");
-    setDate(getNextValidBookingDate(todayString, "11:00"));
-    setDrawTime("11:00");
+    setDate(nextSelection.date);
+    setDrawTime(nextSelection.drawTime);
     setEditingTicketId(null);
     setPaymentMode("Paid");
     setPaidAmount("");
+    setSelectedThirdDigit(0);
+    setSelectedFourthDigit(0);
+    clearJuriDraft();
+    setMobileHouseView("third");
     focusMobileTicketSection("details");
   };
 
@@ -539,6 +731,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       return;
     }
 
+    const wasEditing = Boolean(editingTicketId);
     const currentTimestamp = new Date().toISOString();
     const nextTicket = {
       sellerUsername: session && session.username ? session.username : "",
@@ -596,7 +789,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
 
     await syncSellerData({ forceApply: true });
     clearForm();
-    setActiveTab("Ticket Store");
+    setActiveTab(wasEditing ? "Ticket Store" : "New Ticket");
   };
 
   const claimTicket = async (ticketId) => {
@@ -666,6 +859,10 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setPaymentMode(ticket.paymentMode);
     setPaidAmount(ticket.paymentMode === "Partial Paid" ? String(ticket.paidAmount || "") : "");
     setEditingTicketId(ticket.id);
+    setSelectedThirdDigit(findFirstFilledDigit(formState.third));
+    setSelectedFourthDigit(findFirstFilledDigit(formState.fourth));
+    clearJuriDraft();
+    setMobileHouseView(formState.third.some(Boolean) ? "third" : "fourth");
     focusMobileTicketSection("details");
     setActiveTab("New Ticket");
   };
@@ -761,42 +958,19 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
           </div>
         </div>
 
-        <div className="top-summary">
-          <SummaryCard
-            label="Today Collection"
-            value={formatCurrency(dashboardSummary.collection)}
-            hint="Active tickets only"
-          />
-          <SummaryCard
-            label="Today Payout"
-            value={formatCurrency(dashboardSummary.payout)}
-            hint="Declared results"
-          />
-          <SummaryCard
-            label="Commission"
-            value={formatCurrency(dashboardSummary.commission)}
-            hint="Seller margin"
-          />
-          <SummaryCard
-            label="Outstanding Due"
-            value={formatCurrency(dashboardSummary.outstanding)}
-            hint="Unpaid + partial"
-          />
-          <SummaryCard
-            label="Open Tickets"
-            value={dashboardSummary.openTickets}
-            hint="Unlocked"
-          />
-          <SummaryCard
-            label="Locked Tickets"
-            value={dashboardSummary.lockedTickets}
-            hint="Past draw time"
-          />
-          <SummaryCard
-            label="Claimed Tickets"
-            value={dashboardSummary.claimedTickets}
-            hint="Already claimed"
-          />
+        <div className="seller-priority-strip" aria-label="Seller priority actions">
+          {sellerPriorityActions.map((item) => (
+            <button
+              key={item.title}
+              type="button"
+              className={`seller-priority-card ${item.active ? "active" : ""}`}
+              onClick={item.action}
+            >
+              <span>{item.title}</span>
+              <strong>{item.value}</strong>
+              <small>{item.hint}</small>
+            </button>
+          ))}
         </div>
 
         <div className="glass-card seller-tabs-nav">
@@ -829,36 +1003,76 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         </div>
 
         {activeTab === "Dashboard" && (
-          <div className="glass-card">
-            <div className="section-header">
-              <h2>Today Draw Summary</h2>
-              <span>Daily sales, results and payout by draw slot.</span>
+          <>
+            <div className="top-summary">
+              <SummaryCard
+                label="Today Collection"
+                value={formatCurrency(dashboardSummary.collection)}
+                hint="Active tickets only"
+              />
+              <SummaryCard
+                label="Today Payout"
+                value={formatCurrency(dashboardSummary.payout)}
+                hint="Declared results"
+              />
+              <SummaryCard
+                label="Commission"
+                value={formatCurrency(dashboardSummary.commission)}
+                hint="Seller margin"
+              />
+              <SummaryCard
+                label="Outstanding Due"
+                value={formatCurrency(dashboardSummary.outstanding)}
+                hint="Unpaid + partial"
+              />
+              <SummaryCard
+                label="Open Tickets"
+                value={dashboardSummary.openTickets}
+                hint="Unlocked"
+              />
+              <SummaryCard
+                label="Locked Tickets"
+                value={dashboardSummary.lockedTickets}
+                hint="Past draw time"
+              />
+              <SummaryCard
+                label="Claimed Tickets"
+                value={dashboardSummary.claimedTickets}
+                hint="Already claimed"
+              />
             </div>
 
-            <div className="ticket-list">
-              {drawSummary.map((slot) => (
-                <div key={slot.label} className="saved-ticket">
-                  <div className="saved-top">
-                    <div>
-                      <strong>{slot.label}</strong>
-                      <span>{slot.count} ticket(s)</span>
+            <div className="glass-card">
+              <div className="section-header">
+                <h2>Today Draw Summary</h2>
+                <span>Daily sales, results and payout by draw slot.</span>
+              </div>
+
+              <div className="ticket-list">
+                {drawSummary.map((slot) => (
+                  <div key={slot.label} className="saved-ticket">
+                    <div className="saved-top">
+                      <div>
+                        <strong>{slot.label}</strong>
+                        <span>{slot.count} ticket(s)</span>
+                      </div>
+                      <div className="saved-right">
+                        <strong>{formatCurrency(slot.sale)}</strong>
+                        <span>Payout {formatCurrency(slot.payout)}</span>
+                      </div>
                     </div>
-                    <div className="saved-right">
-                      <strong>{formatCurrency(slot.sale)}</strong>
-                      <span>Payout {formatCurrency(slot.payout)}</span>
-                    </div>
+                    <p className="saved-line">Win Number: {slot.result}</p>
                   </div>
-                  <p className="saved-line">Win Number: {slot.result}</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="mini-summary">
-              <MiniBox label="Today Sale" value={formatCurrency(dashboardSummary.collection)} />
-              <MiniBox label="Commission" value={formatCurrency(dashboardSummary.commission)} />
-              <MiniBox label="Outstanding Due" value={formatCurrency(dashboardSummary.outstanding)} />
+              <div className="mini-summary">
+                <MiniBox label="Today Sale" value={formatCurrency(dashboardSummary.collection)} />
+                <MiniBox label="Commission" value={formatCurrency(dashboardSummary.commission)} />
+                <MiniBox label="Outstanding Due" value={formatCurrency(dashboardSummary.outstanding)} />
+              </div>
             </div>
-          </div>
+          </>
         )}
 
         {activeTab === "New Ticket" && (
@@ -867,9 +1081,9 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               <div className="section-header">
                 <h2>{editingTicketId ? "Edit Ticket" : "Create New Ticket"}</h2>
                 <span>
-                  {editingTicketId
-                    ? "Update the ticket before draw time. Locked tickets cannot be changed."
-                    : "Enter 3rd House, 4th House and juri rows."}
+                    {editingTicketId
+                      ? "Update the ticket before draw time. Locked tickets cannot be changed."
+                    : "Fast ticket-first flow for mobile sellers. Pick draw, enter numbers, then save."}
                 </span>
               </div>
 
@@ -898,23 +1112,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 className="ticket-section-block"
                 onFocusCapture={() => focusMobileTicketSection("details")}
               >
-                <div className="form-row three">
-                  <input
-                    value={customerName}
-                    onChange={(event) => setCustomerName(event.target.value)}
-                    placeholder="Customer Name"
-                    autoComplete="off"
-                    enterKeyHint="next"
-                  />
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(event) => setCustomerPhone(event.target.value)}
-                    placeholder="Customer Phone"
-                    inputMode="numeric"
-                    autoComplete="tel"
-                    enterKeyHint="next"
-                  />
+                <div className="form-row two">
                   <input
                     type="date"
                     value={date}
@@ -922,9 +1120,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                       setDate(getNextValidBookingDate(event.target.value, drawTime))
                     }
                   />
-                </div>
-
-                <div className="form-row">
                   <select
                     value={drawTime}
                     onChange={(event) => {
@@ -948,6 +1143,11 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                       ? `${formatDrawTime(drawTime)} draw is already over for ${date}. Ticket will go to ${effectiveTicketDate}.`
                       : `${formatDrawTime(drawTime)} draw is open for ${effectiveTicketDate}.`}
                   </span>
+                </div>
+
+                <div className="fast-entry-banner">
+                  <strong>Fast Entry Mode</strong>
+                  <span>Tap a digit, use the keypad like a calculator, then save. Closed same-day draws move to the next valid date automatically.</span>
                 </div>
               </div>
 
@@ -977,7 +1177,9 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   <HouseCard
                     title="3rd House"
                     values={third}
-                    onChange={(index, value) => updateSingle(setThird, index, value)}
+                    selectedDigit={selectedThirdDigit}
+                    onSelectDigit={(digit) => setSelectedSingleDigit("third", digit)}
+                    onPadInput={(action) => handleSinglePadInput("third", action)}
                   />
                 </div>
                 <div
@@ -988,7 +1190,9 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   <HouseCard
                     title="4th House"
                     values={fourth}
-                    onChange={(index, value) => updateSingle(setFourth, index, value)}
+                    selectedDigit={selectedFourthDigit}
+                    onSelectDigit={(digit) => setSelectedSingleDigit("fourth", digit)}
+                    onPadInput={(action) => handleSinglePadInput("fourth", action)}
                   />
                 </div>
               </div>
@@ -999,18 +1203,80 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 onFocusCapture={() => focusMobileTicketSection("juri")}
               >
                 <div className="panel-title-row">
-                  <strong>Juri Bulk Entry</strong>
-                  <span>Example: 45-5, 88-5, 04-10</span>
+                  <strong>Juri Fast Entry</strong>
+                  <span>Enter number, enter qty, then add.</span>
                 </div>
-                <textarea
-                  className="bulk-textarea"
-                  value={juriText}
-                  onChange={(event) => setJuriText(event.target.value)}
-                  placeholder="45-5, 88-5, 04-10"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
+
+                <div className="juri-draft-grid">
+                  <button
+                    type="button"
+                    className={`juri-draft-card ${activeJuriField === "number" ? "active" : ""}`}
+                    onClick={() => setActiveJuriField("number")}
+                  >
+                    <span>Juri Number</span>
+                    <strong>{juriDraftNumber ? leftPad(juriDraftNumber, 2, "0") : "--"}</strong>
+                  </button>
+                  <button
+                    type="button"
+                    className={`juri-draft-card ${activeJuriField === "qty" ? "active" : ""}`}
+                    onClick={() => setActiveJuriField("qty")}
+                  >
+                    <span>Quantity</span>
+                    <strong>{juriDraftQty || "0"}</strong>
+                  </button>
+                </div>
+
+                <FastKeypad
+                  onInput={handleJuriPadInput}
+                  primaryActionLabel="Add Juri"
+                  onPrimaryAction={() => handleJuriPadInput("add")}
+                  secondaryActions={[
+                    {
+                      label: "Undo Last",
+                      action: () => handleJuriPadInput("undo"),
+                    },
+                    {
+                      label: "Clear Draft",
+                      action: () => handleJuriPadInput("clear"),
+                    },
+                  ]}
                 />
+
+                <div className="juri-entry-preview">
+                  <div className="panel-title-row">
+                    <strong>Saved Juri Rows</strong>
+                    <span>{parsedJuri.entries.length} valid row(s)</span>
+                  </div>
+                  {parsedJuri.entries.length === 0 ? (
+                    <p className="empty">No juri rows yet.</p>
+                  ) : (
+                    <div className="juri-chip-list">
+                      {parsedJuri.entries.map((item, index) => (
+                        <div key={`juri-preview-${item.num}-${item.qty}-${index}`} className="juri-chip">
+                          <span>{item.num}</span>
+                          <strong>x {item.qty}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bulk-entry-backup">
+                  <div className="panel-title-row">
+                    <strong>Bulk Paste Backup</strong>
+                    <span>Example: 45-5, 88-5, 04-10</span>
+                  </div>
+                  <textarea
+                    className="bulk-textarea"
+                    value={juriText}
+                    onChange={(event) => setJuriText(event.target.value)}
+                    placeholder="45-5, 88-5, 04-10"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+                </div>
+
                 {parsedJuri.invalid.length > 0 ? (
                   <p className="warning-line">
                     Ignored invalid entries: {parsedJuri.invalid.join(", ")}
@@ -1037,8 +1303,27 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               onFocusCapture={() => focusMobileTicketSection("payment")}
             >
               <div className="section-header">
-                <h2>Payment and Save</h2>
-                <span>Select payment mode and save the ticket.</span>
+                <h2>Customer, Payment and Save</h2>
+                <span>Optional customer details, payment mode and final save action.</span>
+              </div>
+
+              <div className="form-row two">
+                <input
+                  value={customerName}
+                  onChange={(event) => setCustomerName(event.target.value)}
+                  placeholder="Customer Name"
+                  autoComplete="off"
+                  enterKeyHint="next"
+                />
+                <input
+                  type="tel"
+                  value={customerPhone}
+                  onChange={(event) => setCustomerPhone(event.target.value)}
+                  placeholder="Customer Phone"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  enterKeyHint="next"
+                />
               </div>
 
               <div className="form-row">
@@ -1546,29 +1831,109 @@ function TicketFormat({ layout, compact = false }) {
   );
 }
 
-function HouseCard({ title, values, onChange }) {
+function HouseCard({ title, values, selectedDigit, onSelectDigit, onPadInput }) {
+  const selectedValue = values[selectedDigit] || "";
+
   return (
     <div className="glass-panel">
       <div className="panel-title-row">
         <strong>{title}</strong>
-        <span>Tap quantity only</span>
+        <span>Tap a digit, then use the fast keypad.</span>
       </div>
+
+      <div className="single-focus-banner">
+        <span>Active Digit</span>
+        <strong>
+          {title} {selectedDigit}
+        </strong>
+        <small>Qty {selectedValue || 0}</small>
+      </div>
+
       <div className="single-grid">
         {values.map((value, index) => (
-          <div key={`${title}-${index}`} className="single-box">
+          <button
+            key={`${title}-${index}`}
+            type="button"
+            className={`single-box ${selectedDigit === index ? "active" : ""} ${Number(value || 0) > 0 ? "filled" : ""}`}
+            onClick={() => onSelectDigit(index)}
+          >
             <span>{index}</span>
-            <input
-              type="tel"
-              value={value}
-              onChange={(event) => onChange(index, event.target.value)}
-              placeholder="0"
-              inputMode="numeric"
-              autoComplete="off"
-              enterKeyHint="done"
-            />
-          </div>
+            <strong>{value || 0}</strong>
+          </button>
         ))}
       </div>
+
+      <FastKeypad
+        onInput={onPadInput}
+        primaryActionLabel="Next Digit"
+        onPrimaryAction={() => onPadInput("next")}
+        secondaryActions={[
+          { label: "+1", action: () => onPadInput("+1") },
+          { label: "+5", action: () => onPadInput("+5") },
+          { label: "Clear", action: () => onPadInput("clear") },
+        ]}
+      />
+    </div>
+  );
+}
+
+function FastKeypad({
+  onInput,
+  primaryActionLabel,
+  onPrimaryAction,
+  secondaryActions = [],
+}) {
+  const keypadValues = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "DEL"];
+
+  const handleKeypadPress = (value) => {
+    if (value === "CLR") {
+      onInput("clear");
+      return;
+    }
+
+    if (value === "DEL") {
+      onInput("del");
+      return;
+    }
+
+    onInput(value);
+  };
+
+  return (
+    <div className="fast-keypad-shell">
+      {secondaryActions.length > 0 ? (
+        <div className="fast-keypad-shortcuts">
+          {secondaryActions.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="fast-keypad-shortcut"
+              onClick={item.action}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="fast-keypad-grid">
+        {keypadValues.map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={`fast-keypad-btn ${value === "CLR" ? "danger" : ""}`}
+            onClick={() => handleKeypadPress(value)}
+          >
+            {value}
+          </button>
+        ))}
+      </div>
+
+      {primaryActionLabel && onPrimaryAction ? (
+        <button type="button" className="fast-keypad-primary" onClick={onPrimaryAction}>
+          {primaryActionLabel}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -2069,6 +2434,30 @@ function getWeekStart(value) {
   return next;
 }
 
+function getNextAvailableDrawSelection(baseDate = getTodayString()) {
+  let candidate = parseDateString(baseDate) || parseDateString(getTodayString());
+
+  while (candidate) {
+    const nextOpenDraw = drawOptions.find(
+      (option) => !isDrawClosedForDate(candidate, option.value)
+    );
+
+    if (nextOpenDraw) {
+      return {
+        date: formatDate(candidate),
+        drawTime: nextOpenDraw.value,
+      };
+    }
+
+    candidate = addDays(candidate, 1);
+  }
+
+  return {
+    date: getTodayString(),
+    drawTime: drawOptions[0].value,
+  };
+}
+
 function getNextValidBookingDate(dateString, drawTime) {
   const today = parseDateString(getTodayString());
   let candidate = parseDateString(dateString) || today;
@@ -2127,6 +2516,40 @@ function formatDateTime(value) {
 
 function sanitizeNumber(value) {
   return Number(value.replace(/[^\d]/g, "") || 0);
+}
+
+function sanitizeQuantityValue(value, maxLength = 3) {
+  return String(value || "").replace(/[^\d]/g, "").slice(0, maxLength);
+}
+
+function appendDigitValue(currentValue, digit, maxLength = 3) {
+  const nextValue = sanitizeQuantityValue(`${currentValue || ""}${digit}`, maxLength);
+  return nextValue.replace(/^0+(?=\d)/, "");
+}
+
+function findFirstFilledDigit(values) {
+  const index = values.findIndex((value) => Number(value || 0) > 0);
+  return index >= 0 ? index : 0;
+}
+
+function appendJuriToken(currentText, nextToken) {
+  const tokens = String(currentText || "")
+    .split(/[,\n]/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  tokens.push(nextToken);
+  return tokens.join(", ");
+}
+
+function removeLastJuriToken(currentText) {
+  const tokens = String(currentText || "")
+    .split(/[,\n]/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  tokens.pop();
+  return tokens.join(", ");
 }
 
 function safeLower(value) {
