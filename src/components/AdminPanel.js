@@ -546,6 +546,21 @@ export default function AdminPanel({ session, onLogout }) {
             </p>
           </div>
 
+          <div className="admin-mobile-switcher">
+            <span>Quick navigation</span>
+            <select
+              aria-label="Switch admin section"
+              value={activeSection}
+              onChange={(event) => setActiveSection(event.target.value)}
+            >
+              {sidebarItems.map((item) => (
+                <option key={`mobile-${item}`} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="admin-menu">
             {sidebarItems.map((item) => (
               <button

@@ -49,6 +49,22 @@ const drawOptions = [
 ];
 
 const reportRanges = ["Daily", "Weekly", "Monthly", "Yearly"];
+const sellerMobileTabLabels = {
+  Dashboard: "Home",
+  "New Ticket": "New",
+  "Ticket Store": "Store",
+  Reports: "Reports",
+  "Result Checker": "Results",
+  Claims: "Claims",
+  Due: "Due",
+};
+const mobileNewTicketSections = [
+  { value: "details", label: "Info" },
+  { value: "third", label: "3rd" },
+  { value: "fourth", label: "4th" },
+  { value: "juri", label: "Juri" },
+  { value: "payment", label: "Save" },
+];
 
 const emptySingle = () => Array(10).fill("");
 const emptyResultDrafts = () => buildResultDraftMap("");
@@ -91,11 +107,18 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [resultDrafts, setResultDrafts] = useState(emptyResultDrafts);
   const [syncMessage, setSyncMessage] = useState("");
   const [reportSummaryMap, setReportSummaryMap] = useState(() => buildEmptyReportSummaryMap());
+  const [mobileTicketSection, setMobileTicketSection] = useState("details");
+  const [mobileHouseView, setMobileHouseView] = useState("third");
   const sellerSyncRef = useRef({
     ticketsSignature: buildSyncSignature(normalizeTickets(persisted.tickets)),
     resultsSignature: buildSyncSignature(persisted.winResults || {}),
     queued: null,
   });
+  const ticketDetailsRef = useRef(null);
+  const ticketThirdRef = useRef(null);
+  const ticketFourthRef = useRef(null);
+  const ticketJuriRef = useRef(null);
+  const ticketPaymentRef = useRef(null);
   const todayString = getTodayString();
   const activeTickets = useMemo(
     () => tickets.filter((ticket) => !ticket.cancelled),
@@ -118,6 +141,15 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   useEffect(() => {
     setResultDrafts(buildResultDraftMap("", resultDate, winResults));
   }, [resultDate, winResults]);
+
+  useEffect(() => {
+    if (activeTab !== "New Ticket") {
+      return;
+    }
+
+    setMobileTicketSection("details");
+    setMobileHouseView("third");
+  }, [activeTab]);
 
   const canApplySellerSyncNow = useCallback(
     (forceApply = false) => {
@@ -455,6 +487,41 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     });
   };
 
+  const focusMobileTicketSection = useCallback((section) => {
+    setMobileTicketSection(section);
+
+    if (section === "third" || section === "fourth") {
+      setMobileHouseView(section);
+    }
+  }, []);
+
+  const scrollToTicketSection = useCallback(
+    (section) => {
+      const sectionRefs = {
+        details: ticketDetailsRef,
+        third: ticketThirdRef,
+        fourth: ticketFourthRef,
+        juri: ticketJuriRef,
+        payment: ticketPaymentRef,
+      };
+
+      focusMobileTicketSection(section);
+
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      window.setTimeout(() => {
+        const sectionRef = sectionRefs[section];
+        sectionRef && sectionRef.current && sectionRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 0);
+    },
+    [focusMobileTicketSection]
+  );
+
   const clearForm = () => {
     setThird(emptySingle());
     setFourth(emptySingle());
@@ -466,6 +533,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setEditingTicketId(null);
     setPaymentMode("Paid");
     setPaidAmount("");
+    focusMobileTicketSection("details");
   };
 
   const createTicket = async () => {
@@ -636,6 +704,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setPaymentMode(ticket.paymentMode);
     setPaidAmount(ticket.paymentMode === "Partial Paid" ? String(ticket.paidAmount || "") : "");
     setEditingTicketId(ticket.id);
+    focusMobileTicketSection("details");
     setActiveTab("New Ticket");
   };
 
@@ -705,7 +774,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   };
 
   return (
-    <div className="app">
+    <div className="app seller-app">
       <div className="container">
         <div className="hero">
           <div className="hero-row">
@@ -768,7 +837,22 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
           />
         </div>
 
-        <div className="glass-card">
+        <div className="glass-card seller-tabs-nav">
+          <div className="mobile-tab-switcher">
+            <span>Quick navigation</span>
+            <select
+              aria-label="Switch seller panel section"
+              value={activeTab}
+              onChange={(event) => setActiveTab(event.target.value)}
+            >
+              {tabs.map((tab) => (
+                <option key={`mobile-${tab}`} value={tab}>
+                  {tab}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="tabs">
             {tabs.map((tab) => (
               <button
@@ -834,70 +918,124 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 </div>
               ) : null}
 
-              <div className="form-row three">
-                <input
-                  value={customerName}
-                  onChange={(event) => setCustomerName(event.target.value)}
-                  placeholder="Customer Name"
-                  autoComplete="off"
-                />
-                <input
-                  type="tel"
-                  value={customerPhone}
-                  onChange={(event) => setCustomerPhone(event.target.value)}
-                  placeholder="Customer Phone"
-                  inputMode="numeric"
-                  autoComplete="tel"
-                />
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(event) =>
-                    setDate(getNextValidBookingDate(event.target.value, drawTime))
-                  }
-                />
+              <div className="new-ticket-mobile-nav" aria-label="New ticket quick sections">
+                {mobileNewTicketSections.map((section) => (
+                  <button
+                    key={section.value}
+                    type="button"
+                    className={`ticket-section-btn ${mobileTicketSection === section.value ? "active" : ""}`}
+                    onClick={() => scrollToTicketSection(section.value)}
+                  >
+                    {section.label}
+                  </button>
+                ))}
               </div>
 
-              <div className="form-row">
-                <select
-                  value={drawTime}
-                  onChange={(event) => {
-                    const nextDrawTime = event.target.value;
-                    setDrawTime(nextDrawTime);
-                    setDate((current) => getNextValidBookingDate(current, nextDrawTime));
-                  }}
+              <div
+                ref={ticketDetailsRef}
+                className="ticket-section-block"
+                onFocusCapture={() => focusMobileTicketSection("details")}
+              >
+                <div className="form-row three">
+                  <input
+                    value={customerName}
+                    onChange={(event) => setCustomerName(event.target.value)}
+                    placeholder="Customer Name"
+                    autoComplete="off"
+                    enterKeyHint="next"
+                  />
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(event) => setCustomerPhone(event.target.value)}
+                    placeholder="Customer Phone"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    enterKeyHint="next"
+                  />
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(event) =>
+                      setDate(getNextValidBookingDate(event.target.value, drawTime))
+                    }
+                  />
+                </div>
+
+                <div className="form-row">
+                  <select
+                    value={drawTime}
+                    onChange={(event) => {
+                      const nextDrawTime = event.target.value;
+                      setDrawTime(nextDrawTime);
+                      setDate((current) => getNextValidBookingDate(current, nextDrawTime));
+                    }}
+                  >
+                    {drawOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="booking-banner">
+                  <strong>Booking For: {effectiveTicketDate}</strong>
+                  <span>
+                    {bookingDateAdjusted
+                      ? `${formatDrawTime(drawTime)} draw is already over for ${date}. Ticket will go to ${effectiveTicketDate}.`
+                      : `${formatDrawTime(drawTime)} draw is open for ${effectiveTicketDate}.`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="house-switcher" aria-label="House entry switcher">
+                <button
+                  type="button"
+                  className={`house-switcher-btn ${mobileHouseView === "third" ? "active" : ""}`}
+                  onClick={() => scrollToTicketSection("third")}
                 >
-                  {drawOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="booking-banner">
-                <strong>Booking For: {effectiveTicketDate}</strong>
-                <span>
-                  {bookingDateAdjusted
-                    ? `${formatDrawTime(drawTime)} draw is already over for ${date}. Ticket will go to ${effectiveTicketDate}.`
-                    : `${formatDrawTime(drawTime)} draw is open for ${effectiveTicketDate}.`}
-                </span>
+                  3rd House
+                </button>
+                <button
+                  type="button"
+                  className={`house-switcher-btn ${mobileHouseView === "fourth" ? "active" : ""}`}
+                  onClick={() => scrollToTicketSection("fourth")}
+                >
+                  4th House
+                </button>
               </div>
 
               <div className="input-layout">
-                <HouseCard
-                  title="3rd House"
-                  values={third}
-                  onChange={(index, value) => updateSingle(setThird, index, value)}
-                />
-                <HouseCard
-                  title="4th House"
-                  values={fourth}
-                  onChange={(index, value) => updateSingle(setFourth, index, value)}
-                />
+                <div
+                  ref={ticketThirdRef}
+                  className={`ticket-house-panel ${mobileHouseView === "third" ? "active-mobile-panel" : ""}`}
+                  onFocusCapture={() => focusMobileTicketSection("third")}
+                >
+                  <HouseCard
+                    title="3rd House"
+                    values={third}
+                    onChange={(index, value) => updateSingle(setThird, index, value)}
+                  />
+                </div>
+                <div
+                  ref={ticketFourthRef}
+                  className={`ticket-house-panel ${mobileHouseView === "fourth" ? "active-mobile-panel" : ""}`}
+                  onFocusCapture={() => focusMobileTicketSection("fourth")}
+                >
+                  <HouseCard
+                    title="4th House"
+                    values={fourth}
+                    onChange={(index, value) => updateSingle(setFourth, index, value)}
+                  />
+                </div>
               </div>
 
-              <div className="glass-panel">
+              <div
+                ref={ticketJuriRef}
+                className="glass-panel ticket-section-block"
+                onFocusCapture={() => focusMobileTicketSection("juri")}
+              >
                 <div className="panel-title-row">
                   <strong>Juri Bulk Entry</strong>
                   <span>Example: 45-5, 88-5, 04-10</span>
@@ -931,7 +1069,11 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               </div>
             </div>
 
-            <div className="glass-card ticket-save-card">
+            <div
+              ref={ticketPaymentRef}
+              className="glass-card ticket-save-card"
+              onFocusCapture={() => focusMobileTicketSection("payment")}
+            >
               <div className="section-header">
                 <h2>Payment and Save</h2>
                 <span>Select payment mode and save the ticket.</span>
@@ -1000,7 +1142,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               <MiniBox label="CANCELLED" value="Removed from active sale" />
             </div>
 
-            <div className="action-bar">
+            <div className="action-bar seller-mobile-toolbar">
               <input
                 value={ticketSearch}
                 onChange={(event) => setTicketSearch(event.target.value)}
@@ -1072,7 +1214,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                       </p>
                       <TicketFormat layout={ticketLayout} compact />
 
-                      <div className="inline-actions">
+                      <div className="inline-actions ticket-card-actions">
                         {canEditTicket(ticket) ? (
                           <button className="outline-btn" onClick={() => startEditTicket(ticket.id)}>
                             Edit
@@ -1194,7 +1336,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               <span>Add win numbers by draw slot. Winning tickets update automatically after result entry.</span>
             </div>
 
-            <div className="action-bar">
+            <div className="action-bar seller-mobile-toolbar">
               <input
                 type="date"
                 value={resultDate}
@@ -1359,6 +1501,20 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
             </div>
           </div>
         )}
+
+        <nav className="seller-mobile-dock" aria-label="Seller quick navigation">
+          {tabs.map((tab) => (
+            <button
+              key={`seller-dock-${tab}`}
+              type="button"
+              className={`seller-dock-btn ${activeTab === tab ? "active" : ""}`}
+              onClick={() => setActiveTab(tab)}
+              aria-current={activeTab === tab ? "page" : undefined}
+            >
+              {sellerMobileTabLabels[tab] || tab}
+            </button>
+          ))}
+        </nav>
       </div>
     </div>
   );

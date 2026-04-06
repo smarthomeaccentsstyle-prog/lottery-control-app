@@ -162,6 +162,135 @@ video {
   padding: 16px;
 }
 
+.mobile-tab-switcher,
+.admin-mobile-switcher {
+  display: none;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.seller-mobile-dock {
+  display: none;
+}
+
+.seller-dock-btn {
+  box-shadow: none;
+}
+
+.new-ticket-mobile-nav,
+.house-switcher {
+  display: none;
+}
+
+.ticket-section-btn,
+.house-switcher-btn {
+  box-shadow: none;
+}
+
+.mobile-tab-switcher span,
+.admin-mobile-switcher span {
+  color: #8d9bb3;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-shell {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    calc(20px + env(safe-area-inset-top))
+    calc(16px + env(safe-area-inset-right))
+    calc(20px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
+}
+
+.login-card {
+  width: min(100%, 460px);
+  padding: 28px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.2), transparent 32%),
+    linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(9, 14, 25, 0.98));
+  border: 1px solid rgba(38, 48, 65, 0.95);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.login-kicker {
+  display: inline-flex;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.18);
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-card h1 {
+  margin: 16px 0 10px;
+  font-size: clamp(1.9rem, 5vw, 2.45rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.login-copy {
+  margin: 0 0 20px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+.login-role-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.login-role-toggle .login-role-btn {
+  min-height: 46px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(51, 65, 85, 0.95);
+  box-shadow: none;
+}
+
+.login-role-toggle .login-role-btn.active {
+  background: linear-gradient(135deg, #2d63ea, #3b82f6);
+  border-color: transparent;
+}
+
+.login-field-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.login-submit-btn {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.login-submit-btn:disabled {
+  opacity: 0.74;
+  cursor: wait;
+}
+
+.login-status {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+.login-demo {
+  margin-top: 16px;
+  font-size: 12px;
+  color: #64748b;
+}
+
 .tabs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -747,8 +876,21 @@ textarea::placeholder {
 .action-bar,
 .inline-actions {
   display: flex;
+  align-items: stretch;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.action-bar > * {
+  flex: 1 1 180px;
+}
+
+.footer-actions > * {
+  flex: 1 1 180px;
+}
+
+.inline-actions > * {
+  flex: 1 1 140px;
 }
 
 .ticket-save-actions {
@@ -989,6 +1131,16 @@ textarea::placeholder {
   line-height: 1.5;
 }
 
+.ticket-section-block,
+.ticket-house-panel,
+.ticket-save-card {
+  scroll-margin-top: 84px;
+}
+
+.seller-mobile-toolbar {
+  scroll-margin-top: 20px;
+}
+
 .report-range-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1124,6 +1276,10 @@ textarea::placeholder {
     position: static;
   }
 
+  .admin-sidebar {
+    position: static;
+  }
+
   .admin-summary-grid,
   .admin-workspace-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1144,6 +1300,10 @@ textarea::placeholder {
 }
 
 @media (max-width: 768px) {
+  .seller-app {
+    padding-bottom: calc(108px + env(safe-area-inset-bottom));
+  }
+
   .app {
     padding:
       calc(16px + env(safe-area-inset-top))
@@ -1177,7 +1337,65 @@ textarea::placeholder {
     width: 100%;
   }
 
-  .top-summary,
+  .top-summary {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(180px, 72vw);
+    overflow-x: auto;
+    gap: 12px;
+    padding: 0 2px 6px;
+    margin-bottom: 18px;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+
+  .new-ticket-mobile-nav {
+    position: sticky;
+    top: calc(12px + env(safe-area-inset-top));
+    z-index: 12;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 0 14px;
+    margin-bottom: 2px;
+    background: linear-gradient(180deg, rgba(18, 25, 39, 0.98), rgba(18, 25, 39, 0.76), transparent);
+  }
+
+  .ticket-section-btn,
+  .house-switcher-btn {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: rgba(10, 17, 29, 0.98);
+    border: 1px solid rgba(36, 50, 78, 0.95);
+    color: #9fb1d3;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .ticket-section-btn.active,
+  .house-switcher-btn.active {
+    background: linear-gradient(135deg, #2d63ea, #3b82f6);
+    border-color: transparent;
+    color: #ffffff;
+  }
+
+  .house-switcher {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    margin-bottom: 12px;
+  }
+
+  .ticket-house-panel {
+    display: none;
+  }
+
+  .ticket-house-panel.active-mobile-panel {
+    display: block;
+  }
+
   .mini-summary,
   .admin-summary-grid,
   .admin-highlight-grid,
@@ -1202,6 +1420,15 @@ textarea::placeholder {
     position: static;
   }
 
+  .seller-tabs-nav,
+  .admin-menu {
+    display: none;
+  }
+
+  .admin-mobile-switcher {
+    display: grid;
+  }
+
   .tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1210,7 +1437,7 @@ textarea::placeholder {
   .footer-actions,
   .inline-actions {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .today-chip {
@@ -1228,7 +1455,7 @@ textarea::placeholder {
 
   .ticket-save-actions {
     position: sticky;
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: calc(88px + env(safe-area-inset-bottom));
     z-index: 8;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1238,6 +1465,68 @@ textarea::placeholder {
     border: 1px solid rgba(36, 50, 78, 0.92);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+  }
+
+  .seller-mobile-toolbar {
+    position: sticky;
+    top: calc(12px + env(safe-area-inset-top));
+    z-index: 10;
+    padding: 10px;
+    border-radius: 16px;
+    background: rgba(12, 19, 34, 0.94);
+    border: 1px solid rgba(36, 50, 78, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .ticket-card-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-card {
+    min-height: 112px;
+    scroll-snap-align: start;
+  }
+
+  .ticket-entered-list .ticket-print-preview {
+    display: none;
+  }
+
+  .seller-mobile-dock {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    z-index: 30;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px;
+    border-radius: 20px;
+    background: rgba(8, 13, 24, 0.96);
+    border: 1px solid rgba(36, 50, 78, 0.94);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .seller-dock-btn {
+    flex: 0 0 82px;
+    min-height: 52px;
+    padding: 10px 8px;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(51, 65, 85, 0.95);
+    color: #9fb1d3;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .seller-dock-btn.active {
+    background: linear-gradient(135deg, #2d63ea, #3b82f6);
+    border-color: transparent;
+    color: #ffffff;
   }
 
   .single-grid {
@@ -1262,6 +1551,18 @@ textarea::placeholder {
     min-height: 40px;
     padding: 8px 6px;
   }
+
+  .ticket-section-block,
+  .ticket-house-panel,
+  .ticket-save-card,
+  .seller-mobile-toolbar {
+    scroll-margin-top: 86px;
+  }
+
+  .login-card {
+    padding: 24px 20px;
+    border-radius: 20px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1282,7 +1583,6 @@ textarea::placeholder {
     font-size: 12px;
   }
 
-  .top-summary,
   .mini-summary,
   .admin-summary-grid,
   .status-guide,
@@ -1297,6 +1597,16 @@ textarea::placeholder {
 
   .hero-actions {
     grid-template-columns: 1fr;
+  }
+
+  .top-summary {
+    grid-auto-columns: minmax(160px, 84vw);
+  }
+
+  .new-ticket-mobile-nav {
+    top: calc(8px + env(safe-area-inset-top));
+    gap: 6px;
+    padding-bottom: 12px;
   }
 
   .tab,
@@ -1314,6 +1624,34 @@ textarea::placeholder {
     width: 100%;
     justify-content: center;
     text-align: center;
+  }
+
+  .login-shell {
+    align-items: stretch;
+  }
+
+  .login-card {
+    width: 100%;
+    padding: 20px 16px;
+    border-radius: 18px;
+  }
+
+  .login-card h1 {
+    font-size: 1.8rem;
+  }
+
+  .ticket-section-btn,
+  .house-switcher-btn {
+    min-height: 38px;
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+
+  .action-bar,
+  .footer-actions,
+  .inline-actions,
+  .ticket-card-actions {
+    grid-template-columns: 1fr;
   }
 
   .glass-card,
@@ -1370,7 +1708,23 @@ textarea::placeholder {
 
   .ticket-save-actions {
     grid-template-columns: 1fr;
-    bottom: calc(8px + env(safe-area-inset-bottom));
+    bottom: calc(82px + env(safe-area-inset-bottom));
     padding: 8px;
+  }
+
+  .seller-mobile-dock {
+    left: 10px;
+    right: 10px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    padding: 6px;
+    gap: 6px;
+    border-radius: 18px;
+  }
+
+  .seller-dock-btn {
+    flex-basis: 74px;
+    min-height: 48px;
+    padding: 8px 6px;
+    font-size: 10px;
   }
 }
