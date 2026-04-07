@@ -9,8 +9,8 @@ const DEFAULT_ADMIN = {
 };
 
 const DEFAULT_MASTER = {
-  username: "master",
-  password: "1234",
+  username: "krishna",
+  password: "131722",
 };
 
 const DEFAULT_SELLERS = [

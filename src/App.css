@@ -692,15 +692,37 @@ button.admin-priority-card.active {
 }
 
 .master-summary-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .master-workspace-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.master-business-panel,
 .master-seller-list-panel {
   grid-column: 1 / -1;
+}
+
+.master-note {
+  margin: 0 0 16px;
+  color: #9fb1d3;
+  line-height: 1.6;
+}
+
+.master-business-grid,
+.master-leader-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.master-business-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.master-leader-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .admin-highlight-grid {
@@ -2063,6 +2085,19 @@ textarea::placeholder {
   color: #8d9bb3;
 }
 
+.security-note {
+  margin: 0 0 14px;
+  color: #9fb1d3;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.admin-security-divider {
+  height: 1px;
+  margin: 20px 0;
+  background: rgba(59, 130, 246, 0.14);
+}
+
 @media (max-width: 1180px) {
   .top-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2091,6 +2126,8 @@ textarea::placeholder {
   }
 
   .admin-highlight-grid,
+  .master-business-grid,
+  .master-leader-grid,
   .admin-insight-grid,
   .report-range-grid,
   .result-grid,
@@ -2267,6 +2304,8 @@ textarea::placeholder {
   .admin-highlight-grid,
   .admin-workspace-grid,
   .admin-priority-strip,
+  .master-business-grid,
+  .master-leader-grid,
   .master-summary-grid,
   .status-guide,
   .preview-grid,
@@ -2553,6 +2592,8 @@ textarea::placeholder {
   .preview-grid,
   .report-range-grid,
   .admin-highlight-grid,
+  .master-business-grid,
+  .master-leader-grid,
   .master-summary-grid,
   .result-grid,
   .report-panels,

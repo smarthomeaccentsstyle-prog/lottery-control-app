@@ -30,7 +30,7 @@ export function getStoredSellers() {
     name: seller && seller.name ? seller.name : `Seller ${index + 1}`,
     mobile: seller && seller.mobile ? seller.mobile : "",
     username: seller && seller.username ? seller.username : `seller${index + 1}`,
-    password: seller && typeof seller.password === "string" ? seller.password : "",
+    password: "",
     active: seller && seller.active !== undefined ? Boolean(seller.active) : true,
     singleCommission:
       seller && typeof seller.singleCommission === "number" && !Number.isNaN(seller.singleCommission)

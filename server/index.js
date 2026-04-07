@@ -40,6 +40,11 @@ const DRAW_ENTRY_CUTOFFS = {
   "19:00": "19:10",
   "20:00": "19:58",
 };
+const PASSWORD_HASH_PREFIX = "scrypt$";
+const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_ATTEMPT_BLOCK_MS = 15 * 60 * 1000;
+const LOGIN_ATTEMPT_LIMIT = 7;
+const loginAttempts = new Map();
 
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(res);
@@ -69,12 +74,27 @@ const server = http.createServer(async (req, res) => {
       const role = String(body.role || "").toLowerCase();
       const username = String(body.username || "").trim();
       const password = String(body.password || "").trim();
+      const loginKey = getLoginAttemptKey(req, role, username);
+      const blockedUntil = getBlockedLoginUntil(loginKey);
+
+      if (blockedUntil) {
+        const retryAfterSeconds = Math.max(
+          1,
+          Math.ceil((blockedUntil - Date.now()) / 1000)
+        );
+        res.setHeader("Retry-After", String(retryAfterSeconds));
+        return sendJson(res, 429, {
+          ok: false,
+          message: "Too many login attempts. Please wait a little and try again.",
+        });
+      }
 
       if (role === "master") {
         if (
-          username === db.master.username &&
-          password === db.master.password
+          normalizeUsername(username) === normalizeUsername(db.master.username) &&
+          verifyPassword(password, db.master.password)
         ) {
+          clearLoginAttempts(loginKey);
           const session = createSession({
             role: "master",
             username: db.master.username,
@@ -89,9 +109,10 @@ const server = http.createServer(async (req, res) => {
 
       if (role === "admin") {
         if (
-          username === db.admin.username &&
-          password === db.admin.password
+          normalizeUsername(username) === normalizeUsername(db.admin.username) &&
+          verifyPassword(password, db.admin.password)
         ) {
+          clearLoginAttempts(loginKey);
           const session = createSession({
             role: "admin",
             username: db.admin.username,
@@ -109,10 +130,11 @@ const server = http.createServer(async (req, res) => {
           (item) =>
             item.active &&
             item.username.toLowerCase() === username.toLowerCase() &&
-            item.password === password
+            verifyPassword(password, item.password)
         );
 
         if (seller) {
+          clearLoginAttempts(loginKey);
           const session = createSession({
             role: "seller",
             username: seller.username,
@@ -126,6 +148,8 @@ const server = http.createServer(async (req, res) => {
           });
         }
       }
+
+      recordFailedLogin(loginKey);
 
       return sendJson(res, 401, {
         ok: false,
@@ -154,6 +178,67 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === "PATCH" && pathname === "/api/auth/password") {
+      if (!ensureAnyRole(res, authSession, ["seller", "admin"])) {
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const payload = sanitizePasswordChangePayload(body);
+      validatePasswordChangePayload(payload);
+
+      if (authSession.role === "seller") {
+        const db = updateDb((current) => {
+          const sellerIndex = current.sellers.findIndex(
+            (seller) =>
+              String(seller.id) === String(authSession.sellerId) ||
+              normalizeUsername(seller.username) === normalizeUsername(authSession.username)
+          );
+
+          if (sellerIndex < 0) {
+            throw new ForbiddenError(FORBIDDEN_MESSAGE);
+          }
+
+          const currentSeller = current.sellers[sellerIndex];
+
+          if (!verifyPassword(payload.currentPassword, currentSeller.password)) {
+            throw new ValidationError("Current password is incorrect");
+          }
+
+          current.sellers[sellerIndex] = updateSeller(currentSeller, {
+            password: hashPassword(payload.newPassword),
+          });
+          return current;
+        });
+
+        return sendJson(res, 200, {
+          ok: true,
+          seller: toPublicSeller(
+            db.sellers.find((seller) => String(seller.id) === String(authSession.sellerId))
+          ),
+          message: "Seller password updated",
+        });
+      }
+
+      const db = updateDb((current) => {
+        if (!verifyPassword(payload.currentPassword, current.admin.password)) {
+          throw new ValidationError("Current password is incorrect");
+        }
+
+        current.admin = {
+          ...current.admin,
+          password: hashPassword(payload.newPassword),
+        };
+        return current;
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        admin: toPublicAdmin(db.admin),
+        message: "Admin password updated",
+      });
+    }
+
     if (req.method === "GET" && pathname === "/api/bootstrap") {
       const db = getDb();
       return sendJson(res, 200, {
@@ -171,7 +256,7 @@ const server = http.createServer(async (req, res) => {
       const db = getDb();
       return sendJson(res, 200, {
         ok: true,
-        sellers: db.sellers,
+        sellers: db.sellers.map(toPublicSeller),
       });
     }
 
@@ -190,6 +275,7 @@ const server = http.createServer(async (req, res) => {
         current.sellers.push(
           createSeller({
             ...payload,
+            password: hashPassword(payload.password),
             active: payload.active !== undefined ? payload.active : true,
           }, current.sellers)
         );
@@ -198,7 +284,7 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 201, {
         ok: true,
-        sellers: db.sellers,
+        sellers: db.sellers.map(toPublicSeller),
       });
     }
 
@@ -228,6 +314,10 @@ const server = http.createServer(async (req, res) => {
           ensureUniqueSellerUsername(current.sellers, payload.username, sellerId);
         }
 
+        if (payload.password) {
+          payload.password = hashPassword(payload.password);
+        }
+
         current.sellers = current.sellers.map((seller) =>
           String(seller.id) === sellerId ? updateSeller(seller, payload) : seller
         );
@@ -236,7 +326,7 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         ok: true,
-        sellers: db.sellers,
+        sellers: db.sellers.map(toPublicSeller),
       });
     }
 
@@ -447,7 +537,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/dashboard/overview" && req.method === "GET") {
-      if (!ensureRole(res, authSession, "admin")) {
+      if (!ensureAnyRole(res, authSession, ["admin", "master"])) {
         return;
       }
 
@@ -598,6 +688,7 @@ const server = http.createServer(async (req, res) => {
         current.admin = {
           ...current.admin,
           ...payload,
+          password: hashPassword(payload.password),
         };
         return current;
       });
@@ -659,6 +750,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+migrateStoredCredentials();
+
 server.listen(PORT, HOST, () => {
   const db = getDb();
   console.log(`Lottery backend running on http://localhost:${PORT}`);
@@ -687,6 +780,82 @@ function extractId(pathname, prefix) {
 
 function normalizeUsername(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
+  return `${PASSWORD_HASH_PREFIX}${salt}$${hash}`;
+}
+
+function isPasswordHash(value) {
+  return String(value || "").startsWith(PASSWORD_HASH_PREFIX);
+}
+
+function verifyPassword(password, storedPassword) {
+  const normalizedPassword = String(password || "");
+  const normalizedStoredPassword = String(storedPassword || "");
+
+  if (!normalizedStoredPassword) {
+    return false;
+  }
+
+  if (!isPasswordHash(normalizedStoredPassword)) {
+    return normalizedPassword === normalizedStoredPassword;
+  }
+
+  const [, salt, expectedHash] = normalizedStoredPassword.split("$");
+
+  if (!salt || !expectedHash) {
+    return false;
+  }
+
+  try {
+    const actualHash = crypto.scryptSync(normalizedPassword, salt, 64).toString("hex");
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedHash, "hex"),
+      Buffer.from(actualHash, "hex")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function migrateStoredCredentials() {
+  const db = getDb();
+  let hasChanges = false;
+
+  const nextMaster = { ...db.master };
+  const nextAdmin = { ...db.admin };
+  const nextSellers = db.sellers.map((seller) => ({ ...seller }));
+
+  if (nextMaster.password && !isPasswordHash(nextMaster.password)) {
+    nextMaster.password = hashPassword(nextMaster.password);
+    hasChanges = true;
+  }
+
+  if (nextAdmin.password && !isPasswordHash(nextAdmin.password)) {
+    nextAdmin.password = hashPassword(nextAdmin.password);
+    hasChanges = true;
+  }
+
+  nextSellers.forEach((seller) => {
+    if (seller.password && !isPasswordHash(seller.password)) {
+      seller.password = hashPassword(seller.password);
+      hasChanges = true;
+    }
+  });
+
+  if (!hasChanges) {
+    return;
+  }
+
+  updateDb((current) => ({
+    ...current,
+    master: nextMaster,
+    admin: nextAdmin,
+    sellers: nextSellers,
+  }));
 }
 
 function createSession(payload) {
@@ -758,6 +927,72 @@ function ensureRole(res, session, role) {
     message: FORBIDDEN_MESSAGE,
   });
   return false;
+}
+
+function getLoginAttemptKey(req, role, username) {
+  const forwardedFor = String(req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
+  const remoteAddress = forwardedFor || req.socket.remoteAddress || "local";
+
+  return [
+    remoteAddress,
+    String(role || "unknown").toLowerCase(),
+    normalizeUsername(username) || "unknown",
+  ].join("|");
+}
+
+function getBlockedLoginUntil(loginKey) {
+  clearExpiredLoginAttempts();
+  const attemptState = loginAttempts.get(loginKey);
+
+  if (!attemptState || !attemptState.blockedUntil) {
+    return 0;
+  }
+
+  return attemptState.blockedUntil > Date.now() ? attemptState.blockedUntil : 0;
+}
+
+function recordFailedLogin(loginKey) {
+  clearExpiredLoginAttempts();
+  const now = Date.now();
+  const currentState = loginAttempts.get(loginKey);
+  const withinWindow =
+    currentState && now - currentState.windowStartedAt <= LOGIN_ATTEMPT_WINDOW_MS;
+
+  const nextState = {
+    attempts: withinWindow ? currentState.attempts + 1 : 1,
+    windowStartedAt: withinWindow ? currentState.windowStartedAt : now,
+    blockedUntil: 0,
+  };
+
+  if (nextState.attempts >= LOGIN_ATTEMPT_LIMIT) {
+    nextState.blockedUntil = now + LOGIN_ATTEMPT_BLOCK_MS;
+  }
+
+  loginAttempts.set(loginKey, nextState);
+}
+
+function clearLoginAttempts(loginKey) {
+  loginAttempts.delete(loginKey);
+}
+
+function clearExpiredLoginAttempts() {
+  const now = Date.now();
+
+  loginAttempts.forEach((attemptState, loginKey) => {
+    if (!attemptState) {
+      loginAttempts.delete(loginKey);
+      return;
+    }
+
+    const windowExpired = now - attemptState.windowStartedAt > LOGIN_ATTEMPT_WINDOW_MS;
+    const blockExpired = !attemptState.blockedUntil || attemptState.blockedUntil <= now;
+
+    if (windowExpired && blockExpired) {
+      loginAttempts.delete(loginKey);
+    }
+  });
 }
 
 function ensureAnyRole(res, session, roles = []) {
@@ -1045,6 +1280,27 @@ function sanitizeAdminPayload(input = {}) {
 function validateAdminPayload(payload = {}) {
   if (!payload.username || !payload.password) {
     throw new ValidationError("Admin username and password are required");
+  }
+}
+
+function sanitizePasswordChangePayload(input = {}) {
+  return {
+    currentPassword: String(input.currentPassword || "").trim(),
+    newPassword: String(input.newPassword || "").trim(),
+  };
+}
+
+function validatePasswordChangePayload(payload = {}) {
+  if (!payload.currentPassword || !payload.newPassword) {
+    throw new ValidationError("Current password and new password are required");
+  }
+
+  if (payload.newPassword.length < 4) {
+    throw new ValidationError("New password must be at least 4 characters");
+  }
+
+  if (payload.currentPassword === payload.newPassword) {
+    throw new ValidationError("Use a different new password");
   }
 }
 

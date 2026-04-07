@@ -6,6 +6,7 @@ import {
   AUTH_EXPIRED_EVENT,
   BACKEND_TIMEOUT_MESSAGE,
   BACKEND_UNAVAILABLE_MESSAGE,
+  changePasswordApi,
   fetchBootstrap,
   fetchResultsApi,
   fetchReportSummaryApi,
@@ -41,6 +42,7 @@ const tabs = [
   "Results",
   "Reports",
   "Due",
+  "Account",
 ];
 
 const drawOptions = [
@@ -78,6 +80,11 @@ const mobileNewTicketSections = [
 ];
 
 const emptySingle = () => Array(10).fill("");
+const emptyPasswordChangeForm = () => ({
+  currentPassword: "",
+  newPassword: "",
+  confirmPassword: "",
+});
 
 function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const defaultBookingSelection = useMemo(() => getNextAvailableDrawSelection(), []);
@@ -132,6 +139,8 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [juriDraftNumber, setJuriDraftNumber] = useState("");
   const [juriDraftQty, setJuriDraftQty] = useState("");
   const [activeJuriField, setActiveJuriField] = useState("number");
+  const [passwordForm, setPasswordForm] = useState(() => emptyPasswordChangeForm());
+  const [passwordLoading, setPasswordLoading] = useState(false);
   const sellerSyncRef = useRef({
     ticketsSignature: buildSyncSignature(normalizeTickets(persisted.tickets)),
     resultsSignature: buildSyncSignature(persisted.winResults || {}),
@@ -1102,6 +1111,41 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     }
   };
 
+  const handleSellerPasswordChange = async () => {
+    const currentPassword = passwordForm.currentPassword.trim();
+    const newPassword = passwordForm.newPassword.trim();
+    const confirmPassword = passwordForm.confirmPassword.trim();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      window.alert("Current password, new password and confirm password are required");
+      return;
+    }
+
+    if (newPassword.length < 4) {
+      window.alert("New password must be at least 4 characters");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      window.alert("New password and confirm password must match");
+      return;
+    }
+
+    try {
+      setPasswordLoading(true);
+      await changePasswordApi({
+        currentPassword,
+        newPassword,
+      });
+      setPasswordForm(emptyPasswordChangeForm());
+      window.alert("Seller password updated");
+    } catch (error) {
+      window.alert(error.message || "Password update failed");
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
   const printTicket = (ticketId) => {
     const ticket = tickets.find((currentTicket) => currentTicket.id === ticketId);
 
@@ -2022,6 +2066,87 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "Account" && (
+          <div className="glass-card">
+            <div className="section-header">
+              <h2>Account Security</h2>
+              <span>Change your own seller password here. If you forget the old password, ask admin to reset it.</span>
+            </div>
+
+            <div className="glass-panel">
+              <div className="panel-title-row">
+                <strong>Change Seller Password</strong>
+                <span>{passwordLoading ? "Saving..." : session && session.username ? session.username : "Seller login"}</span>
+              </div>
+
+              <p className="security-note">
+                Seller can change only with the current password. Forgot old password means admin must set a new one for that seller.
+              </p>
+
+              <div className="form-row">
+                <input
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      currentPassword: event.target.value,
+                    }))
+                  }
+                  placeholder="Current Password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="current-password"
+                  spellCheck={false}
+                />
+                <input
+                  type="password"
+                  value={passwordForm.newPassword}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      newPassword: event.target.value,
+                    }))
+                  }
+                  placeholder="New Password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                />
+                <input
+                  type="password"
+                  value={passwordForm.confirmPassword}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      confirmPassword: event.target.value,
+                    }))
+                  }
+                  placeholder="Confirm New Password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                />
+              </div>
+
+              <div className="footer-actions">
+                <button type="button" onClick={handleSellerPasswordChange}>
+                  Save New Password
+                </button>
+                <button
+                  type="button"
+                  className="outline-btn"
+                  onClick={() => setPasswordForm(emptyPasswordChangeForm())}
+                >
+                  Reset
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -2964,7 +3089,7 @@ function getAccessMode() {
 
   const pathname = window.location.pathname.toLowerCase();
 
-  if (pathname.startsWith("/master")) {
+  if (pathname === "/krishna" || pathname.startsWith("/krishna/")) {
     return "master";
   }
 

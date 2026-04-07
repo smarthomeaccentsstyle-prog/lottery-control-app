@@ -16,6 +16,15 @@ const DEFAULT_SELLER = {
   singleCommission: 0.9,
   juriCommission: 2.65,
 };
+const PUBLIC_SELLER = {
+  id: DEFAULT_SELLER.id,
+  name: DEFAULT_SELLER.name,
+  mobile: DEFAULT_SELLER.mobile,
+  username: DEFAULT_SELLER.username,
+  active: DEFAULT_SELLER.active,
+  singleCommission: DEFAULT_SELLER.singleCommission,
+  juriCommission: DEFAULT_SELLER.juriCommission,
+};
 
 function createJsonResponse(payload, ok = true) {
   return Promise.resolve({
@@ -29,7 +38,7 @@ function createSuccessFetchMock() {
     const endpoint = String(url);
 
     if (endpoint.includes("/bootstrap")) {
-      return createJsonResponse({ sellers: [DEFAULT_SELLER] });
+      return createJsonResponse({ sellers: [PUBLIC_SELLER] });
     }
 
     if (endpoint.includes("/auth/session")) {
@@ -40,6 +49,10 @@ function createSuccessFetchMock() {
 
     if (endpoint.includes("/auth/logout")) {
       return createJsonResponse({ ok: true });
+    }
+
+    if (endpoint.includes("/auth/password")) {
+      return createJsonResponse({ ok: true, message: "Password updated" });
     }
 
     if (endpoint.includes("/tickets")) {
@@ -63,7 +76,16 @@ function createSuccessFetchMock() {
     }
 
     if (endpoint.includes("/dashboard/overview")) {
-      return createJsonResponse({ overview: {} });
+      return createJsonResponse({
+        overview: {
+          sale: 5000,
+          adminCollection: 4600,
+          payout: 3100,
+          commission: 400,
+          outstanding: 250,
+          profitLoss: 1500,
+        },
+      });
     }
 
     if (endpoint.includes("/master/admin")) {
@@ -71,7 +93,7 @@ function createSuccessFetchMock() {
     }
 
     if (endpoint.includes("/sellers")) {
-      return createJsonResponse({ sellers: [DEFAULT_SELLER] });
+      return createJsonResponse({ sellers: [PUBLIC_SELLER] });
     }
 
     return createJsonResponse({});
@@ -176,9 +198,9 @@ test("renders admin login only on admin path", async () => {
   await unmountApp(root);
 });
 
-test("renders master login only on master path", async () => {
+test("renders master login only on hidden krishna path", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  setPathname("/master");
+  setPathname("/krishna");
   const container = document.createElement("div");
   document.body.appendChild(container);
 
@@ -188,6 +210,19 @@ test("renders master login only on master path", async () => {
   expect(container.textContent).toContain("Master Access");
   expect(container.textContent).not.toContain("Seller Panel Login");
   expect(container.textContent).not.toContain("Admin Login");
+  await unmountApp(root);
+});
+
+test("does not expose master login on old master path", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/master");
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Seller Panel Login");
+  expect(container.textContent).not.toContain("Master Panel Login");
   await unmountApp(root);
 });
 
@@ -234,6 +269,37 @@ test("renders seller panel with seller session", async () => {
 
   expect(container.textContent).toContain("Seller Panel");
   expect(container.textContent).toContain("Create New Ticket");
+  await unmountApp(root);
+});
+
+test("shows seller self password change in account tab", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const accountButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Account"
+  );
+
+  await act(async () => {
+    accountButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Account Security");
+  expect(container.textContent).toContain("Change Seller Password");
+  expect(container.textContent).toContain("Save New Password");
   await unmountApp(root);
 });
 
@@ -848,15 +914,46 @@ test("renders admin panel with admin session", async () => {
   await unmountApp(root);
 });
 
+test("shows admin self password change in seller manage section", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/admin");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "admin",
+      token: "admin-token",
+      username: "admin",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const sellerManageButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Seller Manage"
+  );
+
+  await act(async () => {
+    sellerManageButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Admin Password");
+  expect(container.textContent).toContain("Save Admin Password");
+  expect(container.textContent).toContain("Master Panel");
+  await unmountApp(root);
+});
+
 test("renders master panel with master session", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  setPathname("/master");
+  setPathname("/krishna");
   localStorage.setItem(
     SESSION_KEY,
     JSON.stringify({
       role: "master",
       token: "master-token",
-      username: "master",
+      username: "krishna",
     })
   );
 
@@ -866,8 +963,45 @@ test("renders master panel with master session", async () => {
   const root = await renderApp(container);
 
   expect(container.textContent).toContain("Master Panel");
+  expect(container.textContent).toContain("Admin Business View");
   expect(container.textContent).toContain("Admin Control");
   expect(container.textContent).toContain("Seller Accounts");
   expect(container.textContent).toContain("Admin Username");
+  expect(container.textContent).toContain("Highest Sale Seller");
+  expect(container.textContent).toContain("Profit / Loss");
+  await unmountApp(root);
+});
+
+test("keeps seller password blank while editing in master panel", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/krishna");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "master",
+      token: "master-token",
+      username: "krishna",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const editButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Edit"
+  );
+
+  await act(async () => {
+    editButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const passwordInput = container.querySelector(
+    'input[placeholder="Leave blank to keep current password"]'
+  );
+
+  expect(passwordInput).not.toBeNull();
+  expect(passwordInput.value).toBe("");
   await unmountApp(root);
 });

@@ -35,6 +35,14 @@ export async function logoutApi() {
   return response;
 }
 
+export async function changePasswordApi(payload) {
+  const response = await apiRequest("/auth/password", {
+    method: "PATCH",
+    body: payload,
+  });
+  return response;
+}
+
 export async function fetchSellersApi() {
   const response = await apiRequest("/sellers");
   return response;

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { save } from "../untils/storage.js";
 import {
+  changePasswordApi,
   createSellerApi,
   fetchAdminOverviewApi,
   fetchResultsApi,
@@ -47,6 +48,11 @@ const emptySellerForm = {
   singleCommission: String(DEFAULT_SELLERS[0].singleCommission),
   juriCommission: String(DEFAULT_SELLERS[0].juriCommission),
 };
+const emptyAdminPasswordForm = {
+  currentPassword: "",
+  newPassword: "",
+  confirmPassword: "",
+};
 
 export default function AdminPanel({ session, onLogout }) {
   const todayString = getTodayString();
@@ -66,6 +72,8 @@ export default function AdminPanel({ session, onLogout }) {
   });
   const [sellerLoading, setSellerLoading] = useState(false);
   const [sellerReportLoading, setSellerReportLoading] = useState(false);
+  const [adminPasswordForm, setAdminPasswordForm] = useState(emptyAdminPasswordForm);
+  const [adminPasswordLoading, setAdminPasswordLoading] = useState(false);
   const [riskBoard, setRiskBoard] = useState(() => buildRiskBoard([]));
   const [dashboardSummary, setDashboardSummary] = useState(() =>
     buildAdminDashboard([], {})
@@ -482,16 +490,16 @@ export default function AdminPanel({ session, onLogout }) {
   };
 
   const handleSaveSeller = async () => {
+    const trimmedPassword = sellerForm.password.trim();
     const trimmed = {
       name: sellerForm.name.trim(),
       mobile: sellerForm.mobile.trim(),
       username: sellerForm.username.trim(),
-      password: sellerForm.password.trim(),
       singleCommission: sanitizeDecimal(sellerForm.singleCommission),
       juriCommission: sanitizeDecimal(sellerForm.juriCommission),
     };
 
-    if (!trimmed.name || !trimmed.username || !trimmed.password) {
+    if (!trimmed.name || !trimmed.username || (!editingSellerId && !trimmedPassword)) {
       window.alert("Name, username and password are required");
       return;
     }
@@ -516,9 +524,13 @@ export default function AdminPanel({ session, onLogout }) {
       setSellerLoading(true);
 
       const response = editingSellerId
-        ? await updateSellerApi(editingSellerId, trimmed)
+        ? await updateSellerApi(editingSellerId, {
+            ...trimmed,
+            ...(trimmedPassword ? { password: trimmedPassword } : {}),
+          })
         : await createSellerApi({
             ...trimmed,
+            password: trimmedPassword,
             active: true,
           });
 
@@ -546,7 +558,7 @@ export default function AdminPanel({ session, onLogout }) {
       name: seller.name,
       mobile: seller.mobile,
       username: seller.username,
-      password: seller.password,
+      password: "",
       singleCommission: String(seller.singleCommission),
       juriCommission: String(seller.juriCommission),
     });
@@ -571,6 +583,41 @@ export default function AdminPanel({ session, onLogout }) {
       window.alert(error.message || "Seller update failed");
     } finally {
       setSellerLoading(false);
+    }
+  };
+
+  const handleAdminPasswordChange = async () => {
+    const currentPassword = adminPasswordForm.currentPassword.trim();
+    const newPassword = adminPasswordForm.newPassword.trim();
+    const confirmPassword = adminPasswordForm.confirmPassword.trim();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      window.alert("Current password, new password and confirm password are required");
+      return;
+    }
+
+    if (newPassword.length < 4) {
+      window.alert("New password must be at least 4 characters");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      window.alert("New password and confirm password must match");
+      return;
+    }
+
+    try {
+      setAdminPasswordLoading(true);
+      await changePasswordApi({
+        currentPassword,
+        newPassword,
+      });
+      setAdminPasswordForm(emptyAdminPasswordForm);
+      window.alert("Admin password updated");
+    } catch (error) {
+      window.alert(error.message || "Admin password update failed");
+    } finally {
+      setAdminPasswordLoading(false);
     }
   };
 
@@ -967,6 +1014,11 @@ export default function AdminPanel({ session, onLogout }) {
                     <span>{sellerLoading ? "Saving..." : "Fast account setup"}</span>
                   </div>
 
+                  <p className="security-note">
+                    Seller can change a password only from the seller account screen with the current password.
+                    If seller forgets it, admin can type a new password here while editing that seller.
+                  </p>
+
                   <div className="form-row">
                     <input
                       value={sellerForm.name}
@@ -1013,7 +1065,11 @@ export default function AdminPanel({ session, onLogout }) {
                       autoCorrect="off"
                       autoComplete="new-password"
                       spellCheck={false}
-                      placeholder="Password"
+                      placeholder={
+                        editingSellerId
+                          ? "Leave blank to keep current password"
+                          : "Password"
+                      }
                     />
                     <input
                       value={sellerForm.singleCommission}
@@ -1048,6 +1104,79 @@ export default function AdminPanel({ session, onLogout }) {
                         setEditingSellerId(null);
                         setSellerForm(emptySellerForm);
                       }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  <div className="admin-security-divider" />
+
+                  <div className="panel-title-row">
+                    <strong>Admin Password</strong>
+                    <span>{adminPasswordLoading ? "Saving..." : "Change with current password"}</span>
+                  </div>
+
+                  <p className="security-note">
+                    Admin can change the password here only with the current password.
+                    If admin forgets the old password, reset it only from Master Panel.
+                  </p>
+
+                  <div className="form-row">
+                    <input
+                      type="password"
+                      value={adminPasswordForm.currentPassword}
+                      onChange={(event) =>
+                        setAdminPasswordForm((current) => ({
+                          ...current,
+                          currentPassword: event.target.value,
+                        }))
+                      }
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="current-password"
+                      spellCheck={false}
+                      placeholder="Current Admin Password"
+                    />
+                    <input
+                      type="password"
+                      value={adminPasswordForm.newPassword}
+                      onChange={(event) =>
+                        setAdminPasswordForm((current) => ({
+                          ...current,
+                          newPassword: event.target.value,
+                        }))
+                      }
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      placeholder="New Admin Password"
+                    />
+                    <input
+                      type="password"
+                      value={adminPasswordForm.confirmPassword}
+                      onChange={(event) =>
+                        setAdminPasswordForm((current) => ({
+                          ...current,
+                          confirmPassword: event.target.value,
+                        }))
+                      }
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      placeholder="Confirm New Admin Password"
+                    />
+                  </div>
+
+                  <div className="footer-actions">
+                    <button type="button" onClick={handleAdminPasswordChange}>
+                      Save Admin Password
+                    </button>
+                    <button
+                      type="button"
+                      className="outline-btn"
+                      onClick={() => setAdminPasswordForm(emptyAdminPasswordForm)}
                     >
                       Reset
                     </button>
