@@ -8,6 +8,11 @@ const DEFAULT_ADMIN = {
   password: "1234",
 };
 
+const DEFAULT_MASTER = {
+  username: "master",
+  password: "1234",
+};
+
 const DEFAULT_SELLERS = [
   {
     id: 1,
@@ -22,6 +27,7 @@ const DEFAULT_SELLERS = [
 ];
 
 const DEFAULT_DB = {
+  master: DEFAULT_MASTER,
   admin: DEFAULT_ADMIN,
   sellers: DEFAULT_SELLERS,
   tickets: [],

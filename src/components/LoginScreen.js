@@ -10,18 +10,27 @@ export default function LoginScreen({
   statusMessage = "",
 }) {
   const isAdmin = role === "admin";
+  const isMaster = role === "master";
+  const accessLabel = isMaster ? "Master Access" : isAdmin ? "Admin Access" : "Seller Access";
+  const title = isMaster ? "Master Panel Login" : isAdmin ? "Admin Login" : "Seller Panel Login";
+  const copy = isMaster
+    ? "Enter master username and password to control admin and seller accounts only."
+    : isAdmin
+      ? "Enter admin username and password to open the risk board."
+      : "Enter seller username and password to continue selling tickets from any device.";
+  const usernamePlaceholder = isMaster
+    ? "Master Username"
+    : isAdmin
+      ? "Admin Username"
+      : "Seller Username";
 
   return (
     <div className="login-shell">
       <div className="login-card">
-        <div className="login-kicker">{isAdmin ? "Admin Access" : "Seller Access"}</div>
-        <h1>{isAdmin ? "Admin Login" : "Seller Panel Login"}</h1>
+        <div className="login-kicker">{accessLabel}</div>
+        <h1>{title}</h1>
 
-        <p className="login-copy">
-          {isAdmin
-            ? "Enter admin username and password to open the risk board."
-            : "Enter seller username and password to continue selling tickets from any device."}
-        </p>
+        <p className="login-copy">{copy}</p>
 
         <form
           className="login-field-grid"
@@ -31,7 +40,7 @@ export default function LoginScreen({
           }}
         >
           <input
-            placeholder={isAdmin ? "Admin Username" : "Seller Username"}
+            placeholder={usernamePlaceholder}
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             autoCapitalize="none"

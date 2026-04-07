@@ -20,6 +20,7 @@ import {
 } from "./untils/api.js";
 import LoginScreen from "./components/LoginScreen.js";
 import AdminPanel from "./components/AdminPanel.js";
+import MasterPanel from "./components/MasterPanel.js";
 import {
   PANEL_SESSION_KEY,
   SELLER_LIST_KEY,
@@ -127,6 +128,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [mobileHouseView, setMobileHouseView] = useState("third");
   const [selectedThirdDigit, setSelectedThirdDigit] = useState(0);
   const [selectedFourthDigit, setSelectedFourthDigit] = useState(0);
+  const [lastSavedTicketId, setLastSavedTicketId] = useState(null);
   const [juriDraftNumber, setJuriDraftNumber] = useState("");
   const [juriDraftQty, setJuriDraftQty] = useState("");
   const [activeJuriField, setActiveJuriField] = useState("number");
@@ -517,6 +519,13 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       return matchesSearch && matchesFilter;
     });
   }, [ticketFilter, ticketSearch, tickets]);
+  const lastSavedTicket = useMemo(() => {
+    if (!lastSavedTicketId) {
+      return null;
+    }
+
+    return tickets.find((ticket) => String(ticket.id) === String(lastSavedTicketId)) || null;
+  }, [lastSavedTicketId, tickets]);
 
   const reportMetrics = reportSummaryMap[reportRange] || emptyReportMetrics();
 
@@ -855,6 +864,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
 
     const wasEditing = Boolean(editingTicketId);
     const currentTimestamp = new Date().toISOString();
+    const nextTicketId = editingTicketId || Date.now();
     const nextTicket = {
       sellerUsername: session && session.username ? session.username : "",
       customerName: customerName.trim() || "Walk-in Customer",
@@ -899,7 +909,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     } else {
       try {
         await createTicketApi({
-          id: Date.now(),
+          id: nextTicketId,
           ...nextTicket,
           createdAt: currentTimestamp,
         });
@@ -911,6 +921,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
 
     await syncSellerData({ forceApply: true });
     clearForm();
+    setLastSavedTicketId(wasEditing ? null : nextTicketId);
     setActiveTab(wasEditing ? "Ticket Store" : "New Ticket");
   };
 
@@ -1034,6 +1045,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     }
 
     const formState = ticketToFormState(ticket);
+    setLastSavedTicketId(null);
     setThird(formState.third);
     setFourth(formState.fourth);
     setJuriText(formState.juriText);
@@ -1606,6 +1618,35 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   {editingTicketId ? "Close Edit" : "Reset"}
                 </button>
               </div>
+
+              {lastSavedTicketId ? (
+                <div className="ticket-save-feedback">
+                  <div>
+                    <strong>Ticket #{lastSavedTicketId} saved</strong>
+                    <span>
+                      {lastSavedTicket
+                        ? `${formatDrawTime(lastSavedTicket.drawTime)} | ${lastSavedTicket.date} | ${formatCurrency(lastSavedTicket.total)}`
+                        : "Print it now or reprint later from Ticket Store."}
+                    </span>
+                  </div>
+                  <div className="ticket-save-feedback-actions">
+                    <button
+                      type="button"
+                      className="outline-btn"
+                      onClick={() => printTicket(lastSavedTicketId)}
+                    >
+                      Print Ticket
+                    </button>
+                    <button
+                      type="button"
+                      className="outline-btn"
+                      onClick={() => setLastSavedTicketId(null)}
+                    >
+                      Hide
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="entered-list ticket-entered-list">
                 <div className="panel-title-row">
@@ -2921,9 +2962,17 @@ function getAccessMode() {
     return "seller";
   }
 
-  return window.location.pathname.toLowerCase().startsWith("/admin")
-    ? "admin"
-    : "seller";
+  const pathname = window.location.pathname.toLowerCase();
+
+  if (pathname.startsWith("/master")) {
+    return "master";
+  }
+
+  if (pathname.startsWith("/admin")) {
+    return "admin";
+  }
+
+  return "seller";
 }
 
 function isBackendOfflineError(message) {
@@ -3077,7 +3126,7 @@ export default function App() {
       nextSession = response.session;
       save(PANEL_SESSION_KEY, nextSession);
 
-      if (accessMode === "admin") {
+      if (accessMode === "admin" || accessMode === "master") {
         const sellerResponse = await fetchSellersApi();
         save(SELLER_LIST_KEY, sellerResponse.sellers || []);
       }
@@ -3140,6 +3189,10 @@ export default function App() {
 
   if (session.role === "admin") {
     return <AdminPanel session={session} onLogout={handleLogout} />;
+  }
+
+  if (session.role === "master") {
+    return <MasterPanel session={session} onLogout={handleLogout} />;
   }
 
   return <SellerPanel session={session} onLogout={handleLogout} sellerSyncToken={sellerSyncToken} />;

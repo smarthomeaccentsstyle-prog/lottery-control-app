@@ -70,6 +70,23 @@ const server = http.createServer(async (req, res) => {
       const username = String(body.username || "").trim();
       const password = String(body.password || "").trim();
 
+      if (role === "master") {
+        if (
+          username === db.master.username &&
+          password === db.master.password
+        ) {
+          const session = createSession({
+            role: "master",
+            username: db.master.username,
+          });
+
+          return sendJson(res, 200, {
+            ok: true,
+            session,
+          });
+        }
+      }
+
       if (role === "admin") {
         if (
           username === db.admin.username &&
@@ -147,7 +164,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/sellers" && req.method === "GET") {
-      if (!ensureRole(res, authSession, "admin")) {
+      if (!ensureAnyRole(res, authSession, ["admin", "master"])) {
         return;
       }
 
@@ -159,7 +176,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/sellers" && req.method === "POST") {
-      if (!ensureRole(res, authSession, "admin")) {
+      if (!ensureAnyRole(res, authSession, ["admin", "master"])) {
         return;
       }
 
@@ -186,7 +203,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname.startsWith("/api/sellers/") && req.method === "PATCH") {
-      if (!ensureRole(res, authSession, "admin")) {
+      if (!ensureAnyRole(res, authSession, ["admin", "master"])) {
         return;
       }
 
@@ -556,6 +573,41 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (pathname === "/api/master/admin" && req.method === "GET") {
+      if (!ensureRole(res, authSession, "master")) {
+        return;
+      }
+
+      const db = getDb();
+      return sendJson(res, 200, {
+        ok: true,
+        admin: toPublicAdmin(db.admin),
+      });
+    }
+
+    if (pathname === "/api/master/admin" && req.method === "PATCH") {
+      if (!ensureRole(res, authSession, "master")) {
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const payload = sanitizeAdminPayload(body);
+      validateAdminPayload(payload);
+
+      const db = updateDb((current) => {
+        current.admin = {
+          ...current.admin,
+          ...payload,
+        };
+        return current;
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        admin: toPublicAdmin(db.admin),
+      });
+    }
+
     if ((req.method === "GET" || req.method === "HEAD") && shouldServeStatic(pathname)) {
       return serveStaticAsset(res, pathname, req.method);
     }
@@ -706,6 +758,28 @@ function ensureRole(res, session, role) {
     message: FORBIDDEN_MESSAGE,
   });
   return false;
+}
+
+function ensureAnyRole(res, session, roles = []) {
+  if (!ensureAuthenticated(res, session)) {
+    return false;
+  }
+
+  if (roles.includes(session.role)) {
+    return true;
+  }
+
+  sendJson(res, 403, {
+    ok: false,
+    message: FORBIDDEN_MESSAGE,
+  });
+  return false;
+}
+
+function toPublicAdmin(admin = {}) {
+  return {
+    username: admin.username || "",
+  };
 }
 
 function toPublicSeller(seller = {}) {
@@ -959,6 +1033,19 @@ function validateSellerCommissionFields(payload = {}) {
 function sanitizePositiveNumber(value) {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? nextValue : 0;
+}
+
+function sanitizeAdminPayload(input = {}) {
+  return {
+    username: String(input.username || "").trim(),
+    password: String(input.password || "").trim(),
+  };
+}
+
+function validateAdminPayload(payload = {}) {
+  if (!payload.username || !payload.password) {
+    throw new ValidationError("Admin username and password are required");
+  }
 }
 
 function ensureUniqueSellerUsername(sellers = [], username, excludedId = null) {

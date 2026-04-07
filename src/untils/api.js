@@ -123,6 +123,19 @@ export async function updateSellerApi(id, payload) {
   return response;
 }
 
+export async function fetchMasterAdminApi() {
+  const response = await apiRequest("/master/admin");
+  return response;
+}
+
+export async function updateMasterAdminApi(payload) {
+  const response = await apiRequest("/master/admin", {
+    method: "PATCH",
+    body: payload,
+  });
+  return response;
+}
+
 async function apiRequest(pathname, options = {}) {
   const controller =
     typeof AbortController === "function" ? new AbortController() : null;

@@ -220,11 +220,13 @@ button.seller-priority-card.active {
   margin-bottom: 16px;
 }
 
-.seller-mobile-dock {
+.seller-mobile-dock,
+.admin-mobile-dock {
   display: none;
 }
 
-.seller-dock-btn {
+.seller-dock-btn,
+.admin-dock-btn {
   box-shadow: none;
 }
 
@@ -433,10 +435,51 @@ button {
   gap: 18px;
 }
 
+.admin-shell-compact {
+  max-width: 1480px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.admin-app {
+  padding-bottom: 24px;
+}
+
 .admin-sidebar {
   position: sticky;
   top: 24px;
   height: fit-content;
+}
+
+.admin-command-center {
+  padding: 20px;
+}
+
+.admin-command-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.admin-command-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-command-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(15, 22, 36, 0.96);
+  border: 1px solid rgba(29, 40, 64, 0.92);
+  color: #dbe6ff;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .admin-brand h1 {
@@ -468,9 +511,13 @@ button {
   gap: 10px;
 }
 
+.admin-section-menu {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .admin-menu-btn {
-  justify-content: flex-start;
-  text-align: left;
+  justify-content: center;
+  text-align: center;
   background: rgba(16, 23, 38, 0.98);
   border: 1px solid rgba(36, 50, 78, 0.92);
   box-shadow: none;
@@ -481,17 +528,73 @@ button {
   border: 1px solid transparent;
 }
 
+.admin-priority-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+button.admin-priority-card {
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  text-align: left;
+  background: rgba(16, 23, 38, 0.98);
+  border: 1px solid rgba(36, 50, 78, 0.92);
+  box-shadow: none;
+}
+
+.admin-priority-card span {
+  color: #8d9bb3;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-priority-card strong {
+  color: #f8fbff;
+  font-size: clamp(1.25rem, 2.6vw, 1.5rem);
+}
+
+.admin-priority-card small {
+  color: #9db0d3;
+  font-size: 12px;
+}
+
+button.admin-priority-card.active {
+  background: linear-gradient(135deg, rgba(34, 80, 190, 0.96), rgba(19, 34, 62, 0.98));
+  border-color: rgba(96, 165, 250, 0.72);
+}
+
 .admin-logout {
-  margin-top: 18px;
-  width: 100%;
+  margin-top: 0;
+  width: auto;
 }
 
 .admin-content {
   min-width: 0;
 }
 
+.admin-content-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .admin-summary-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.admin-risk-summary-grid {
+  margin-bottom: 18px;
+}
+
+.admin-report-summary-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-bottom: 18px;
 }
 
 .seller-summary-grid {
@@ -534,11 +637,136 @@ button {
   justify-content: flex-end;
 }
 
+.master-shell {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.master-app {
+  padding-bottom: 24px;
+}
+
+.master-hero {
+  padding: 20px;
+}
+
+.master-hero-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.master-hero-top h1 {
+  margin: 10px 0 8px;
+  font-size: clamp(1.625rem, 3.8vw, 2rem);
+  font-weight: 800;
+}
+
+.master-hero-top p {
+  margin: 0;
+  color: #8f9ab4;
+  line-height: 1.5;
+}
+
+.master-hero-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.master-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(15, 22, 36, 0.96);
+  border: 1px solid rgba(29, 40, 64, 0.92);
+  color: #dbe6ff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.master-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.master-workspace-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.master-seller-list-panel {
+  grid-column: 1 / -1;
+}
+
 .admin-highlight-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
+}
+
+.admin-risk-toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-draw-chip-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-draw-chip {
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(10, 17, 29, 0.98);
+  border: 1px solid rgba(36, 50, 78, 0.95);
+  color: #9fb1d3;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-draw-chip.active {
+  background: linear-gradient(135deg, #2d63ea, #3b82f6);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.admin-risk-headline {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(18, 29, 48, 0.98), rgba(10, 17, 29, 0.98));
+  border: 1px solid rgba(59, 130, 246, 0.22);
+}
+
+.admin-risk-headline strong {
+  color: #f8fbff;
+  font-size: clamp(1.125rem, 2.6vw, 1.3rem);
+}
+
+.admin-risk-headline span {
+  color: #9fb1d3;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-result-panel {
+  margin-bottom: 18px;
+}
+
+.admin-result-actions {
+  margin-bottom: 14px;
 }
 
 .admin-insight-actions {
@@ -648,6 +876,28 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-manage-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+}
+
+.admin-seller-focus-panel {
+  grid-column: 1 / -1;
+}
+
+.admin-seller-list-panel,
+.admin-seller-form-panel {
+  align-self: start;
+}
+
+.admin-seller-card.selected {
+  border-color: rgba(59, 130, 246, 0.72);
+  background: linear-gradient(180deg, rgba(20, 31, 49, 0.98), rgba(15, 22, 36, 0.96));
+}
+
+.admin-seller-hero {
+  background: linear-gradient(135deg, rgba(20, 38, 66, 0.98), rgba(13, 20, 35, 0.98));
+}
+
 .admin-seller-dashboard-panel {
   grid-column: 1 / -1;
 }
@@ -667,6 +917,10 @@ button {
 .admin-selected-btn {
   border-color: rgba(59, 130, 246, 0.9);
   color: #dbeafe;
+}
+
+.admin-report-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .form-row {
@@ -1113,6 +1367,38 @@ textarea::placeholder {
   margin-bottom: 16px;
 }
 
+.ticket-save-feedback {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.ticket-save-feedback strong {
+  display: block;
+  color: #f8fbff;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.ticket-save-feedback span {
+  color: #cbf7d8;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ticket-save-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.ticket-save-feedback-actions > * {
+  flex: 1 1 180px;
+}
+
 .entered-list {
   background: rgba(15, 22, 36, 0.96);
   border: 1px solid rgba(29, 40, 64, 0.92);
@@ -1462,6 +1748,7 @@ textarea::placeholder {
 .entered-list,
 .booking-banner,
 .editing-banner,
+.ticket-save-feedback,
 .mini-box,
 .preview-box,
 .result-card,
@@ -1486,7 +1773,8 @@ textarea::placeholder {
 .saved-right span,
 .seller-dashboard-meta,
 .booking-banner span,
-.editing-banner span {
+.editing-banner span,
+.ticket-save-feedback span {
   overflow-wrap: anywhere;
 }
 
@@ -1798,6 +2086,10 @@ textarea::placeholder {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .admin-report-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .admin-highlight-grid,
   .admin-insight-grid,
   .report-range-grid,
@@ -1810,11 +2102,29 @@ textarea::placeholder {
   .dense-risk-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  .admin-priority-strip,
+  .admin-report-grid,
+  .master-workspace-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-draw-chip-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-manage-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
   .seller-app {
     padding-bottom: calc(128px + env(safe-area-inset-bottom));
+  }
+
+  .admin-app {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
   }
 
   .app {
@@ -1842,6 +2152,8 @@ textarea::placeholder {
   .hero-actions,
   .section-header,
   .saved-top,
+  .admin-command-top,
+  .master-hero-top,
   .seller-dashboard-hero,
   .panel-title-row,
   .result-card-top,
@@ -1954,11 +2266,15 @@ textarea::placeholder {
   .admin-summary-grid,
   .admin-highlight-grid,
   .admin-workspace-grid,
+  .admin-priority-strip,
+  .master-summary-grid,
   .status-guide,
   .preview-grid,
   .report-range-grid,
   .result-grid,
-  .report-panels {
+  .report-panels,
+  .admin-report-grid,
+  .master-workspace-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1966,13 +2282,10 @@ textarea::placeholder {
   .form-row.three,
   .input-layout,
   .admin-insight-grid,
+  .admin-draw-chip-row,
   .admin-risk-grid,
   .dense-risk-grid {
     grid-template-columns: 1fr;
-  }
-
-  .admin-sidebar {
-    position: static;
   }
 
   .admin-menu {
@@ -1996,6 +2309,28 @@ textarea::placeholder {
 
   .admin-mobile-switcher {
     display: grid;
+  }
+
+  .admin-command-actions {
+    justify-content: flex-start;
+  }
+
+  .master-hero-actions {
+    justify-content: flex-start;
+  }
+
+  .admin-command-pill {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .master-pill {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .admin-logout {
+    width: 100%;
   }
 
   .tabs {
@@ -2023,6 +2358,22 @@ textarea::placeholder {
   }
 
   .seller-priority-card {
+    scroll-snap-align: start;
+  }
+
+  .admin-priority-strip,
+  .admin-draw-chip-row {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(180px, 72vw);
+    overflow-x: auto;
+    padding: 0 2px 6px;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+
+  .admin-priority-card,
+  .admin-draw-chip {
     scroll-snap-align: start;
   }
 
@@ -2083,6 +2434,24 @@ textarea::placeholder {
     -webkit-backdrop-filter: blur(14px);
   }
 
+  .admin-mobile-dock {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+    border-radius: 20px;
+    background: rgba(8, 13, 24, 0.96);
+    border: 1px solid rgba(36, 50, 78, 0.94);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
   .seller-dock-btn {
     min-width: 0;
     min-height: 52px;
@@ -2097,7 +2466,27 @@ textarea::placeholder {
     line-height: 1.1;
   }
 
+  .admin-dock-btn {
+    min-width: 0;
+    min-height: 52px;
+    padding: 10px 8px;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(51, 65, 85, 0.95);
+    color: #9fb1d3;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+  }
+
   .seller-dock-btn.active {
+    background: linear-gradient(135deg, #2d63ea, #3b82f6);
+    border-color: transparent;
+    color: #ffffff;
+  }
+
+  .admin-dock-btn.active {
     background: linear-gradient(135deg, #2d63ea, #3b82f6);
     border-color: transparent;
     color: #ffffff;
@@ -2164,9 +2553,14 @@ textarea::placeholder {
   .preview-grid,
   .report-range-grid,
   .admin-highlight-grid,
+  .master-summary-grid,
   .result-grid,
   .report-panels,
-  .admin-workspace-grid {
+  .admin-workspace-grid,
+  .admin-priority-strip,
+  .admin-report-grid,
+  .admin-report-summary-grid,
+  .master-workspace-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2199,17 +2593,6 @@ textarea::placeholder {
   button {
     min-height: 42px;
     padding: 10px 14px;
-  }
-
-  .admin-menu {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .admin-menu-btn,
-  .admin-logout {
-    width: 100%;
-    justify-content: center;
-    text-align: center;
   }
 
   .login-shell {
@@ -2255,6 +2638,7 @@ textarea::placeholder {
   .entered-list,
   .booking-banner,
   .editing-banner,
+  .ticket-save-feedback,
   .result-card,
   .mini-box,
   .preview-box {
@@ -2317,6 +2701,10 @@ textarea::placeholder {
     padding: 8px;
   }
 
+  .ticket-save-feedback-actions {
+    flex-direction: column;
+  }
+
   .fast-keypad-btn {
     min-height: 52px;
   }
@@ -2331,6 +2719,21 @@ textarea::placeholder {
   }
 
   .seller-dock-btn {
+    min-height: 48px;
+    padding: 8px 6px;
+    font-size: 10px;
+  }
+
+  .admin-mobile-dock {
+    left: 10px;
+    right: 10px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    padding: 6px;
+    gap: 6px;
+    border-radius: 18px;
+  }
+
+  .admin-dock-btn {
     min-height: 48px;
     padding: 8px 6px;
     font-size: 10px;

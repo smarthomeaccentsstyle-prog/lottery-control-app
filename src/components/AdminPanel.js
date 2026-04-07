@@ -33,11 +33,10 @@ const drawOptions = [
   { value: "20:00", label: "8:00 PM", cutoff: "19:58" },
 ];
 
-const sidebarItems = [
-  "Risk Board",
-  "Results",
-  "Sellers",
-  "Dashboard",
+const adminSections = [
+  { value: "Risk Board", label: "Risk Board", shortLabel: "Risk" },
+  { value: "Seller Manage", label: "Seller Manage", shortLabel: "Sellers" },
+  { value: "Reports", label: "Reports", shortLabel: "Reports" },
 ];
 
 const emptySellerForm = {
@@ -53,16 +52,13 @@ export default function AdminPanel({ session, onLogout }) {
   const todayString = getTodayString();
   const [activeSection, setActiveSection] = useState("Risk Board");
   const [selectedDate, setSelectedDate] = useState(getTodayString());
-  const [selectedDrawTime, setSelectedDrawTime] = useState("11:00");
-  const [resultDate, setResultDate] = useState(getTodayString());
-  const [resultDrawTime, setResultDrawTime] = useState("11:00");
+  const [selectedDrawTime, setSelectedDrawTime] = useState(() => getDefaultAdminDrawTime());
   const [winningNumber, setWinningNumber] = useState("");
   const [sellerForm, setSellerForm] = useState(emptySellerForm);
   const [editingSellerId, setEditingSellerId] = useState(null);
   const [selectedSellerId, setSelectedSellerId] = useState(DEFAULT_SELLERS[0].id);
   const [sellerReportDate, setSellerReportDate] = useState(getTodayString());
   const [sellerReportDrawTime, setSellerReportDrawTime] = useState("ALL");
-  const [showSellerReport, setShowSellerReport] = useState(false);
   const [sellers, setSellers] = useState(getStoredSellers);
   const [sellerState, setSellerState] = useState({
     tickets: [],
@@ -163,9 +159,9 @@ export default function AdminPanel({ session, onLogout }) {
 
   useEffect(() => {
     const storedResult =
-      sellerState.winResults[buildResultKey(resultDate, resultDrawTime)] || "";
+      sellerState.winResults[buildResultKey(selectedDate, selectedDrawTime)] || "";
     setWinningNumber(storedResult);
-  }, [resultDate, resultDrawTime, sellerState.winResults]);
+  }, [selectedDate, selectedDrawTime, sellerState.winResults]);
 
   const activeTickets = useMemo(
     () => normalizeAdminTickets(sellerState.tickets).filter((ticket) => !ticket.cancelled),
@@ -242,6 +238,8 @@ export default function AdminPanel({ session, onLogout }) {
       : riskBoard.collection - payoutExposure
   );
   const drawStatus = estimatedProfitLoss >= 0 ? "SAFE" : "LOSS";
+  const selectedDrawResult =
+    sellerState.winResults[buildResultKey(selectedDate, selectedDrawTime)] || "";
 
   useEffect(() => {
     let active = true;
@@ -279,7 +277,6 @@ export default function AdminPanel({ session, onLogout }) {
   useEffect(() => {
     setSellerReportDate(todayString);
     setSellerReportDrawTime("ALL");
-    setShowSellerReport(false);
     setSellerFilteredReport(emptySellerReport());
   }, [selectedSellerId, todayString]);
 
@@ -350,14 +347,6 @@ export default function AdminPanel({ session, onLogout }) {
   useEffect(() => {
     let active = true;
 
-    if (!showSellerReport) {
-      setSellerFilteredReport(emptySellerReport());
-      setSellerReportLoading(false);
-      return () => {
-        active = false;
-      };
-    }
-
     const loadSellerReport = async () => {
       if (!selectedSeller || !selectedSeller.username) {
         setSellerFilteredReport(emptySellerReport());
@@ -401,24 +390,73 @@ export default function AdminPanel({ session, onLogout }) {
     sellerReportDrawTime,
     sellerReportTickets,
     sellerState.winResults,
-    showSellerReport,
   ]);
 
-  const resultWinningTickets = useMemo(
+  const selectedDrawWinningTickets = useMemo(
     () =>
       activeTickets
         .filter(
-          (ticket) => ticket.date === resultDate && ticket.drawTime === resultDrawTime
+          (ticket) => ticket.date === selectedDate && ticket.drawTime === selectedDrawTime
         )
         .map((ticket) => ({
           ...ticket,
           payout: getTicketPayoutForResult(
             ticket,
-            sellerState.winResults[buildResultKey(resultDate, resultDrawTime)] || ""
+            sellerState.winResults[buildResultKey(selectedDate, selectedDrawTime)] || ""
           ),
         }))
         .filter((ticket) => ticket.payout > 0),
-    [activeTickets, resultDate, resultDrawTime, sellerState.winResults]
+    [activeTickets, selectedDate, selectedDrawTime, sellerState.winResults]
+  );
+
+  const drawReportRows = useMemo(
+    () =>
+      drawOptions.map((option) => {
+        const drawTickets = activeTickets.filter(
+          (ticket) => ticket.date === todayString && ticket.drawTime === option.value
+        );
+        const resultNumber =
+          sellerState.winResults[buildResultKey(todayString, option.value)] || "";
+        const payout = drawTickets.reduce(
+          (sum, ticket) => sum + getTicketPayoutForResult(ticket, resultNumber),
+          0
+        );
+        const sale = drawTickets.reduce((sum, ticket) => sum + ticket.total, 0);
+        const adminCollection = drawTickets.reduce(
+          (sum, ticket) => sum + ticket.total - ticket.commission,
+          0
+        );
+
+        return {
+          drawTime: option.value,
+          label: option.label,
+          tickets: drawTickets.length,
+          sale,
+          adminCollection,
+          payout,
+          resultNumber: resultNumber || "--",
+        };
+      }),
+    [activeTickets, sellerState.winResults, todayString]
+  );
+
+  const sellerPerformanceRows = useMemo(
+    () =>
+      sellers
+        .map((seller) => {
+          const tickets = activeTickets.filter(
+            (ticket) =>
+              String(ticket.sellerUsername || "").toLowerCase() ===
+              String(seller.username || "").toLowerCase()
+          );
+
+          return {
+            seller,
+            summary: buildSellerSummary(seller, tickets, sellerState.winResults),
+          };
+        })
+        .sort((left, right) => right.summary.sale - left.summary.sale),
+    [activeTickets, sellerState.winResults, sellers]
   );
 
   const handleSaveResult = async () => {
@@ -431,8 +469,8 @@ export default function AdminPanel({ session, onLogout }) {
 
     try {
       await saveResultApi({
-        date: resultDate,
-        drawTime: resultDrawTime,
+        date: selectedDate,
+        drawTime: selectedDrawTime,
         winningNumber: sanitized,
       });
       await syncAdminData();
@@ -485,8 +523,10 @@ export default function AdminPanel({ session, onLogout }) {
           });
 
       setSellers(response.sellers || []);
-      if (!editingSellerId && response.sellers && response.sellers[0]) {
-        setSelectedSellerId(response.sellers[0].id);
+      if (editingSellerId) {
+        setSelectedSellerId(editingSellerId);
+      } else if (response.sellers && response.sellers.length > 0) {
+        setSelectedSellerId(response.sellers[response.sellers.length - 1].id);
       }
     } catch (error) {
       window.alert(error.message || "Seller save failed");
@@ -510,7 +550,8 @@ export default function AdminPanel({ session, onLogout }) {
       singleCommission: String(seller.singleCommission),
       juriCommission: String(seller.juriCommission),
     });
-    setActiveSection("Sellers");
+    setSelectedSellerId(seller.id);
+    setActiveSection("Seller Manage");
   };
 
   const toggleSellerActive = async (sellerId) => {
@@ -533,17 +574,65 @@ export default function AdminPanel({ session, onLogout }) {
     }
   };
 
+  const activeSellerCount = sellers.filter((seller) => seller.active).length;
+  const selectedDrawWinningPayout = selectedDrawWinningTickets.reduce(
+    (sum, ticket) => sum + ticket.payout,
+    0
+  );
+  const selectedDrawSellerCount = new Set(
+    selectedDrawTickets.map((ticket) => String(ticket.sellerUsername || "").toLowerCase())
+  ).size;
+
   return (
-    <div className="app">
-      <div className="admin-shell">
-        <aside className="glass-card admin-sidebar">
-          <div className="admin-brand">
-            <span className="admin-chip">Admin</span>
-            <h1>Risk Control</h1>
-            <p>
-              Logged in as {session.username}. Open the draw and see danger numbers
-              instantly.
-            </p>
+    <div className="app admin-app">
+      <div className="admin-shell admin-shell-compact">
+        <div className="glass-card admin-command-center">
+          <div className="admin-command-top">
+            <div className="admin-brand">
+              <span className="admin-chip">Admin</span>
+              <h1>Risk Control</h1>
+              <p>
+                Main work stays on three screens only: risk board, seller manage, and reports.
+              </p>
+            </div>
+
+            <div className="admin-command-actions">
+              <div className="admin-command-pill">User: {session.username}</div>
+              <div className="admin-command-pill">Today: {todayString}</div>
+              <button className="outline-btn admin-logout" onClick={onLogout}>
+                Logout
+              </button>
+            </div>
+          </div>
+
+          <div className="admin-priority-strip" aria-label="Admin quick actions">
+            <button
+              type="button"
+              className={`admin-priority-card ${activeSection === "Risk Board" ? "active" : ""}`}
+              onClick={() => setActiveSection("Risk Board")}
+            >
+              <span>Risk Board</span>
+              <strong>{formatDrawTime(selectedDrawTime)}</strong>
+              <small>{formatCurrency(payoutExposure)} exposure</small>
+            </button>
+            <button
+              type="button"
+              className={`admin-priority-card ${activeSection === "Seller Manage" ? "active" : ""}`}
+              onClick={() => setActiveSection("Seller Manage")}
+            >
+              <span>Seller Manage</span>
+              <strong>{activeSellerCount} active</strong>
+              <small>{sellers.length} seller account(s)</small>
+            </button>
+            <button
+              type="button"
+              className={`admin-priority-card ${activeSection === "Reports" ? "active" : ""}`}
+              onClick={() => setActiveSection("Reports")}
+            >
+              <span>Reports</span>
+              <strong>{formatCurrency(dashboardSummary.adminCollection)}</strong>
+              <small>Admin collection snapshot</small>
+            </button>
           </div>
 
           <div className="admin-mobile-switcher">
@@ -553,58 +642,67 @@ export default function AdminPanel({ session, onLogout }) {
               value={activeSection}
               onChange={(event) => setActiveSection(event.target.value)}
             >
-              {sidebarItems.map((item) => (
-                <option key={`mobile-${item}`} value={item}>
-                  {item}
+              {adminSections.map((item) => (
+                <option key={`mobile-${item.value}`} value={item.value}>
+                  {item.label}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="admin-menu">
-            {sidebarItems.map((item) => (
+          <div className="admin-menu admin-section-menu">
+            {adminSections.map((item) => (
               <button
-                key={item}
-                className={`admin-menu-btn ${activeSection === item ? "active" : ""}`}
-                onClick={() => setActiveSection(item)}
+                key={item.value}
+                type="button"
+                className={`admin-menu-btn ${activeSection === item.value ? "active" : ""}`}
+                onClick={() => setActiveSection(item.value)}
               >
-                {item}
+                {item.label}
               </button>
             ))}
           </div>
+        </div>
 
-          <button className="outline-btn admin-logout" onClick={onLogout}>
-            Logout
-          </button>
-        </aside>
-
-        <main className="admin-content">
+        <main className="admin-content admin-content-stack">
           {activeSection === "Risk Board" && (
             <div className="glass-card">
               <div className="section-header">
                 <h2>Risk Board</h2>
-                <span>See dangerous numbers for the selected date and draw time.</span>
+                <span>Choose one draw, see the biggest danger instantly, and save the result from the same screen.</span>
               </div>
 
-              <div className="action-bar">
+              <div className="admin-risk-toolbar">
                 <input
                   type="date"
                   value={selectedDate}
                   onChange={(event) => setSelectedDate(event.target.value)}
                 />
-                <select
-                  value={selectedDrawTime}
-                  onChange={(event) => setSelectedDrawTime(event.target.value)}
-                >
+
+                <div className="admin-draw-chip-row" role="tablist" aria-label="Choose draw time">
                   {drawOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`admin-draw-chip ${selectedDrawTime === option.value ? "active" : ""}`}
+                      onClick={() => setSelectedDrawTime(option.value)}
+                    >
                       {option.label}
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
-              <div className="mini-summary admin-summary-grid">
+              <div className="admin-risk-headline">
+                <strong>
+                  {selectedDate} | {formatDrawTime(selectedDrawTime)}
+                </strong>
+                <span>
+                  Result {selectedDrawResult || "--"} | Status {drawStatus} | Cutoff {formatTimeValue(getEntryCutoffValue(selectedDrawTime))} | {selectedDrawTickets.length} ticket(s)
+                </span>
+              </div>
+
+              <div className="mini-summary admin-summary-grid admin-risk-summary-grid">
                 <MiniStatCard
                   label="Admin Collection"
                   value={formatCurrency(riskBoard.collection)}
@@ -620,11 +718,8 @@ export default function AdminPanel({ session, onLogout }) {
                   value={formatCurrency(estimatedProfitLoss)}
                   status={estimatedProfitLoss >= 0 ? "safe" : "danger"}
                 />
-                <MiniStatCard
-                  label="Draw Status"
-                  value={drawStatus}
-                  status={drawStatus === "SAFE" ? "safe" : "danger"}
-                />
+                <MiniStatCard label="Winning Tickets" value={selectedDrawWinningTickets.length} />
+                <MiniStatCard label="Sellers In Draw" value={selectedDrawSellerCount} />
               </div>
 
               <div className="admin-highlight-grid">
@@ -645,101 +740,231 @@ export default function AdminPanel({ session, onLogout }) {
                 />
               </div>
 
+              <div className="glass-panel admin-result-panel">
+                <div className="panel-title-row">
+                  <strong>Result Update</strong>
+                  <span>Same draw, same screen, one save action.</span>
+                </div>
+
+                <div className="action-bar admin-result-actions">
+                  <input
+                    type="tel"
+                    value={winningNumber}
+                    onChange={(event) =>
+                      setWinningNumber(event.target.value.replace(/[^\d]/g, "").slice(0, 2))
+                    }
+                    inputMode="numeric"
+                    placeholder="2 digit result"
+                  />
+                  <button type="button" onClick={handleSaveResult}>
+                    Save Result
+                  </button>
+                </div>
+
+                <div className="report-list">
+                  <div className="report-row">
+                    <span>Stored Result</span>
+                    <strong>{selectedDrawResult || "--"}</strong>
+                  </div>
+                  <div className="report-row">
+                    <span>Winning Tickets</span>
+                    <strong>{selectedDrawWinningTickets.length}</strong>
+                  </div>
+                  <div className="report-row">
+                    <span>Winning Payout</span>
+                    <strong>{formatCurrency(selectedDrawWinningPayout)}</strong>
+                  </div>
+                </div>
+              </div>
+
               <RiskSection title="3rd House" rows={riskBoard.thirdRows} />
               <RiskSection title="4th House" rows={riskBoard.fourthRows} />
               <RiskSection title="Juri" rows={riskBoard.juriRows} dense />
             </div>
           )}
 
-          {activeSection === "Results" && (
+          {activeSection === "Seller Manage" && (
             <div className="glass-card">
               <div className="section-header">
-                <h2>Result Entry</h2>
-                <span>Select date, draw time and save the winning number.</span>
+                <h2>Seller Manage</h2>
+                <span>Pick a seller, review today activity, and see report details without extra show or hide steps.</span>
               </div>
 
-              <div className="action-bar">
-                <input
-                  type="date"
-                  value={resultDate}
-                  onChange={(event) => setResultDate(event.target.value)}
-                />
-                <select
-                  value={resultDrawTime}
-                  onChange={(event) => setResultDrawTime(event.target.value)}
-                >
-                  {drawOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="tel"
-                  value={winningNumber}
-                  onChange={(event) =>
-                    setWinningNumber(event.target.value.replace(/[^\d]/g, "").slice(0, 2))
-                  }
-                  inputMode="numeric"
-                  placeholder="Winning Number"
-                />
-                <button onClick={handleSaveResult}>Save Result</button>
-              </div>
+              <div className="workspace-grid admin-manage-grid">
+                <div className="glass-panel admin-seller-focus-panel">
+                  <div className="panel-title-row">
+                    <strong>{selectedSeller ? `${selectedSeller.name} Snapshot` : "Seller Snapshot"}</strong>
+                    <span>
+                      {selectedSeller
+                        ? `${selectedSeller.username} | ${selectedSeller.mobile || "No mobile"}`
+                        : "Choose a seller from the list"}
+                    </span>
+                  </div>
 
-              <div className="mini-summary admin-summary-grid">
-                <MiniStatCard
-                  label="Stored Result"
-                  value={sellerState.winResults[buildResultKey(resultDate, resultDrawTime)] || "--"}
-                />
-                <MiniStatCard
-                  label="Winning Tickets"
-                  value={resultWinningTickets.length}
-                />
-                <MiniStatCard
-                  label="Payout"
-                  value={formatCurrency(
-                    resultWinningTickets.reduce((sum, ticket) => sum + ticket.payout, 0)
-                  )}
-                />
-              </div>
-
-              <div className="ticket-list">
-                {resultWinningTickets.length === 0 ? (
-                  <p className="empty">No winning tickets for this draw yet.</p>
-                ) : (
-                  resultWinningTickets.map((ticket) => (
-                    <div key={`admin-win-${ticket.id}`} className="saved-ticket">
-                      <div className="saved-top">
+                  {selectedSeller ? (
+                    <>
+                      <div className="glass-panel seller-dashboard-hero admin-seller-hero">
                         <div>
-                          <strong>#{ticket.id}</strong>
-                          <span>
-                            {ticket.customerName} | {formatDrawTime(ticket.drawTime)} | {ticket.date}
+                          <span className="seller-dashboard-kicker">Today Seller Summary</span>
+                          <h3>{selectedSeller.name}</h3>
+                          <p className="seller-dashboard-meta">
+                            {selectedSeller.username} | {selectedSeller.mobile || "No mobile"} | Single Comm. {selectedSeller.singleCommission} | Juri Comm. {selectedSeller.juriCommission}
+                          </p>
+                        </div>
+
+                        <div className="seller-dashboard-tags">
+                          <span className={`status-pill ${selectedSeller.active ? "open" : "cancelled"}`}>
+                            {selectedSeller.active ? "ACTIVE" : "INACTIVE"}
+                          </span>
+                          <span className="status-pill claimed">
+                            {sellerTodayReport.ticketCount} Today Tickets
                           </span>
                         </div>
-                        <div className="saved-right">
-                          <strong>{formatCurrency(ticket.payout)}</strong>
-                          <span>Winning payout</span>
+                      </div>
+
+                      <div className="mini-summary admin-summary-grid seller-summary-grid">
+                        <MiniStatCard label="Today Seller Sale" value={formatCurrency(sellerTodayReport.sale)} accent />
+                        <MiniStatCard label="Today Admin" value={formatCurrency(sellerTodayReport.adminCollection)} />
+                        <MiniStatCard label="Today Comm." value={formatCurrency(sellerTodayReport.commission)} />
+                        <MiniStatCard label="Today Payout" value={formatCurrency(sellerTodayReport.payout)} />
+                        <MiniStatCard label="Today Admin Net" value={formatCurrency(sellerTodayReport.adminProfitLoss)} status={sellerTodayReport.adminProfitLoss >= 0 ? "safe" : "danger"} />
+                      </div>
+
+                      <div className="mini-summary admin-summary-grid seller-summary-grid">
+                        <MiniStatCard label="Today Qty" value={sellerTodayReport.totalQty} />
+                        <MiniStatCard label="Today Open" value={sellerTodayReport.openTickets} />
+                        <MiniStatCard label="Today Locked" value={sellerTodayReport.lockedTickets} />
+                        <MiniStatCard label="Today Claimed" value={sellerTodayReport.claimedTickets} />
+                        <MiniStatCard label="Today Due" value={formatCurrency(sellerTodayReport.customerDue)} status={sellerTodayReport.customerDue > 0 ? "warning" : "safe"} />
+                      </div>
+
+                      <div className="glass-panel">
+                        <div className="panel-title-row">
+                          <strong>Seller Report</strong>
+                          <span>Auto refreshes when you change seller, date, or draw.</span>
+                        </div>
+
+                        <div className="action-bar seller-report-actions">
+                          <input
+                            type="date"
+                            value={sellerReportDate}
+                            onChange={(event) => setSellerReportDate(event.target.value)}
+                          />
+                          <select
+                            value={sellerReportDrawTime}
+                            onChange={(event) => setSellerReportDrawTime(event.target.value)}
+                          >
+                            <option value="ALL">All Draws</option>
+                            {drawOptions.map((option) => (
+                              <option key={`seller-report-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {sellerReportLoading ? (
+                          <p className="empty">Loading seller report...</p>
+                        ) : sellerFilteredReport.ticketCount === 0 ? (
+                          <p className="empty">No seller data found for this report filter.</p>
+                        ) : (
+                          <>
+                            <div className="mini-summary admin-summary-grid seller-summary-grid">
+                              <MiniStatCard label="Report Seller Sale" value={formatCurrency(sellerFilteredReport.sale)} accent />
+                              <MiniStatCard label="Report Admin" value={formatCurrency(sellerFilteredReport.adminCollection)} />
+                              <MiniStatCard label="Report Qty" value={sellerFilteredReport.totalQty} />
+                              <MiniStatCard label="Report Tickets" value={sellerFilteredReport.ticketCount} />
+                              <MiniStatCard label="Report Due" value={formatCurrency(sellerFilteredReport.customerDue)} status={sellerFilteredReport.customerDue > 0 ? "warning" : "safe"} />
+                            </div>
+
+                            <div className="ticket-list">
+                              {sellerFilteredReport.tickets.map((ticket) => (
+                                <div key={`seller-report-${ticket.id}`} className="saved-ticket">
+                                  <div className="saved-top">
+                                    <div>
+                                      <strong>#{ticket.id}</strong>
+                                      <span>
+                                        {ticket.date} | {formatDrawTime(ticket.drawTime)}
+                                      </span>
+                                    </div>
+                                    <div className="saved-right">
+                                      <span className={`status-pill ${ticket.statusTone}`}>
+                                        {ticket.statusLabel}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <p className="saved-line">
+                                    Seller {formatCurrency(ticket.total)} | Admin {formatCurrency(ticket.adminCollection)} | Qty {ticket.totalQty} | Paid {formatCurrency(ticket.paidAmount)} | Due {formatCurrency(ticket.dueAmount)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="empty">No seller selected.</p>
+                  )}
+                </div>
+
+                <div className="glass-panel admin-seller-list-panel">
+                  <div className="panel-title-row">
+                    <strong>Seller List</strong>
+                    <span>{activeSellerCount} active seller(s)</span>
+                  </div>
+
+                  <div className="ticket-list">
+                    {sellers.map((seller) => (
+                      <div
+                        key={seller.id}
+                        className={`saved-ticket admin-seller-card ${selectedSeller && seller.id === selectedSeller.id ? "selected" : ""}`}
+                      >
+                        <div className="saved-top">
+                          <div>
+                            <strong>{seller.name}</strong>
+                            <span>{seller.username} | {seller.mobile || "No mobile"}</span>
+                          </div>
+                          <div className="saved-right">
+                            <span className={`status-pill ${seller.active ? "open" : "cancelled"}`}>
+                              {seller.active ? "ACTIVE" : "INACTIVE"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="saved-line">
+                          Single Comm. {seller.singleCommission} | Juri Comm. {seller.juriCommission}
+                        </p>
+
+                        <div className="inline-actions">
+                          <button
+                            type="button"
+                            className={`outline-btn ${selectedSeller && seller.id === selectedSeller.id ? "admin-selected-btn" : ""}`}
+                            onClick={() => setSelectedSellerId(seller.id)}
+                          >
+                            {selectedSeller && seller.id === selectedSeller.id ? "Opened" : "Open"}
+                          </button>
+                          <button type="button" className="outline-btn" onClick={() => startSellerEdit(seller)}>
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="outline-btn"
+                            onClick={() => toggleSellerActive(seller.id)}
+                          >
+                            {seller.active ? "Pause" : "Activate"}
+                          </button>
                         </div>
                       </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+                    ))}
+                  </div>
+                </div>
 
-          {activeSection === "Sellers" && (
-            <div className="glass-card">
-              <div className="section-header">
-                <h2>Seller Management</h2>
-                <span>Add, edit and activate sellers, then tap a seller to view seller-only totals.</span>
-              </div>
-
-              <div className="workspace-grid admin-workspace-grid">
-                <div className="glass-panel admin-seller-dashboard-panel">
+                <div className="glass-panel admin-seller-form-panel">
                   <div className="panel-title-row">
                     <strong>{editingSellerId ? "Edit Seller" : "Add Seller"}</strong>
-                    <span>{sellerLoading ? "Syncing..." : `${sellers.length} seller(s)`}</span>
+                    <span>{sellerLoading ? "Saving..." : "Fast account setup"}</span>
                   </div>
 
                   <div className="form-row">
@@ -813,10 +1038,11 @@ export default function AdminPanel({ session, onLogout }) {
                   </div>
 
                   <div className="footer-actions">
-                    <button onClick={handleSaveSeller}>
+                    <button type="button" onClick={handleSaveSeller}>
                       {editingSellerId ? "Update Seller" : "Add Seller"}
                     </button>
                     <button
+                      type="button"
                       className="outline-btn"
                       onClick={() => {
                         setEditingSellerId(null);
@@ -827,52 +1053,47 @@ export default function AdminPanel({ session, onLogout }) {
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
 
+          {activeSection === "Reports" && (
+            <div className="glass-card">
+              <div className="section-header">
+                <h2>Reports</h2>
+                <span>Keep reports simple: admin totals at the top, today by draw, then seller performance below.</span>
+              </div>
+
+              <div className="mini-summary admin-summary-grid admin-report-summary-grid">
+                <MiniStatCard label="Total Sale" value={formatCurrency(dashboardSummary.sale)} accent />
+                <MiniStatCard label="Admin Collection" value={formatCurrency(dashboardSummary.adminCollection)} />
+                <MiniStatCard label="Actual Payout" value={formatCurrency(dashboardSummary.payout)} />
+                <MiniStatCard label="Seller Comm." value={formatCurrency(dashboardSummary.commission)} />
+                <MiniStatCard label="Outstanding" value={formatCurrency(dashboardSummary.outstanding)} status={dashboardSummary.outstanding > 0 ? "warning" : "safe"} />
+                <MiniStatCard
+                  label="Admin Profit / Loss"
+                  value={formatCurrency(dashboardSummary.profitLoss)}
+                  status={dashboardSummary.profitLoss >= 0 ? "safe" : "danger"}
+                />
+              </div>
+
+              <div className="report-panels admin-report-grid">
                 <div className="glass-panel">
                   <div className="panel-title-row">
-                    <strong>Seller List</strong>
-                    <span>Tap edit or activate</span>
+                    <strong>Today By Draw</strong>
+                    <span>{todayString}</span>
                   </div>
 
-                  <div className="ticket-list">
-                    {sellers.map((seller) => (
-                      <div key={seller.id} className="saved-ticket">
-                        <div className="saved-top">
-                          <div>
-                            <strong>{seller.name}</strong>
-                            <span>
-                              {seller.username} | {seller.mobile || "No mobile"}
-                            </span>
-                          </div>
-                          <div className="saved-right">
-                            <span
-                              className={`status-pill ${seller.active ? "open" : "cancelled"}`}
-                            >
-                              {seller.active ? "ACTIVE" : "INACTIVE"}
-                            </span>
-                          </div>
+                  <div className="report-list">
+                    {drawReportRows.map((row) => (
+                      <div key={`admin-draw-report-${row.drawTime}`} className="report-slot-row">
+                        <div>
+                          <strong>{row.label}</strong>
+                          <span>{row.tickets} ticket(s) | Result {row.resultNumber}</span>
                         </div>
-
-                        <p className="saved-line">
-                          Single Comm. {seller.singleCommission} | Juri Comm. {seller.juriCommission}
-                        </p>
-
-                        <div className="inline-actions">
-                          <button className="outline-btn" onClick={() => startSellerEdit(seller)}>
-                            Edit
-                          </button>
-                          <button
-                            className={`outline-btn ${selectedSeller && seller.id === selectedSeller.id ? "admin-selected-btn" : ""}`}
-                            onClick={() => setSelectedSellerId(seller.id)}
-                          >
-                            View
-                          </button>
-                          <button
-                            className="outline-btn"
-                            onClick={() => toggleSellerActive(seller.id)}
-                          >
-                            {seller.active ? "Deactivate" : "Activate"}
-                          </button>
+                        <div className="saved-right">
+                          <strong>{formatCurrency(row.adminCollection)}</strong>
+                          <span>Sale {formatCurrency(row.sale)} | Payout {formatCurrency(row.payout)}</span>
                         </div>
                       </div>
                     ))}
@@ -881,154 +1102,45 @@ export default function AdminPanel({ session, onLogout }) {
 
                 <div className="glass-panel">
                   <div className="panel-title-row">
-                    <strong>{selectedSeller ? `${selectedSeller.name} Dashboard` : "Seller Dashboard"}</strong>
-                    <span>Tap seller from list to change details</span>
+                    <strong>Seller Performance</strong>
+                    <span>Sorted by seller sale</span>
                   </div>
 
-                  {selectedSeller ? (
-                    <>
-                      <div className="glass-panel seller-dashboard-hero">
+                  <div className="report-list">
+                    {sellerPerformanceRows.map(({ seller, summary }) => (
+                      <div key={`seller-performance-${seller.id}`} className="report-slot-row">
                         <div>
-                          <span className="seller-dashboard-kicker">Today Seller Summary</span>
-                          <h3>{selectedSeller.name}</h3>
-                          <p className="seller-dashboard-meta">
-                            {selectedSeller.username} | {selectedSeller.mobile || "No mobile"} | Single Comm. {selectedSeller.singleCommission} | Juri Comm. {selectedSeller.juriCommission} | Date {todayString}
-                          </p>
-                        </div>
-
-                        <div className="seller-dashboard-tags">
-                          <span className={`status-pill ${selectedSeller.active ? "open" : "cancelled"}`}>
-                            {selectedSeller.active ? "ACTIVE" : "INACTIVE"}
-                          </span>
-                          <span className="status-pill claimed">
-                            {sellerTodayReport.ticketCount} Today Tickets
+                          <strong>{seller.name}</strong>
+                          <span>
+                            {seller.username} | {seller.active ? "Active" : "Inactive"} | {summary.ticketCount} ticket(s)
                           </span>
                         </div>
-                      </div>
-
-                      <div className="mini-summary admin-summary-grid seller-summary-grid">
-                        <MiniStatCard label="Today Seller Sale" value={formatCurrency(sellerTodayReport.sale)} accent />
-                        <MiniStatCard label="Today Admin" value={formatCurrency(sellerTodayReport.adminCollection)} />
-                        <MiniStatCard label="Today Comm." value={formatCurrency(sellerTodayReport.commission)} />
-                        <MiniStatCard label="Today Payout" value={formatCurrency(sellerTodayReport.payout)} />
-                        <MiniStatCard label="Today Admin Net" value={formatCurrency(sellerTodayReport.adminProfitLoss)} status={sellerTodayReport.adminProfitLoss >= 0 ? "safe" : "danger"} />
-                      </div>
-
-                      <div className="mini-summary admin-summary-grid seller-summary-grid">
-                        <MiniStatCard label="Today Qty" value={sellerTodayReport.totalQty} />
-                        <MiniStatCard label="Today Open" value={sellerTodayReport.openTickets} />
-                        <MiniStatCard label="Today Locked" value={sellerTodayReport.lockedTickets} />
-                        <MiniStatCard label="Today Claimed" value={sellerTodayReport.claimedTickets} />
-                        <MiniStatCard label="Today Due" value={formatCurrency(sellerTodayReport.customerDue)} status={sellerTodayReport.customerDue > 0 ? "warning" : "safe"} />
-                      </div>
-
-                        <div className="glass-panel">
-                          <div className="panel-title-row">
-                            <strong>Seller Report</strong>
-                            <span>Previous data stays hidden until you select date and draw time</span>
-                          </div>
-
-                          <div className="action-bar seller-report-actions">
-                            <input
-                              type="date"
-                              value={sellerReportDate}
-                              onChange={(event) => setSellerReportDate(event.target.value)}
-                            />
-                            <select
-                              value={sellerReportDrawTime}
-                              onChange={(event) => setSellerReportDrawTime(event.target.value)}
-                            >
-                              <option value="ALL">All Draws</option>
-                              {drawOptions.map((option) => (
-                                <option key={`seller-report-${option.value}`} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <button onClick={() => setShowSellerReport(true)}>Show Report</button>
-                            <button
-                              className="outline-btn"
-                              onClick={() => setShowSellerReport(false)}
-                            >
-                              Hide Report
-                            </button>
-                          </div>
-
-                          {!showSellerReport ? (
-                            <p className="empty">
-                              Showing today summary only. Select date and draw time, then tap
-                              report when you need old data.
-                            </p>
-                          ) : sellerReportLoading ? (
-                            <p className="empty">Loading seller report...</p>
-                          ) : sellerFilteredReport.ticketCount === 0 ? (
-                            <p className="empty">No seller data found for this report filter.</p>
-                          ) : (
-                            <>
-                              <div className="mini-summary admin-summary-grid seller-summary-grid">
-                                <MiniStatCard label="Report Seller Sale" value={formatCurrency(sellerFilteredReport.sale)} accent />
-                                <MiniStatCard label="Report Admin" value={formatCurrency(sellerFilteredReport.adminCollection)} />
-                                <MiniStatCard label="Report Qty" value={sellerFilteredReport.totalQty} />
-                                <MiniStatCard label="Report Tickets" value={sellerFilteredReport.ticketCount} />
-                                <MiniStatCard label="Report Due" value={formatCurrency(sellerFilteredReport.customerDue)} status={sellerFilteredReport.customerDue > 0 ? "warning" : "safe"} />
-                              </div>
-
-                              <div className="ticket-list">
-                                {sellerFilteredReport.tickets.map((ticket) => (
-                                  <div key={`seller-report-${ticket.id}`} className="saved-ticket">
-                                    <div className="saved-top">
-                                      <div>
-                                        <strong>#{ticket.id}</strong>
-                                        <span>
-                                          {ticket.date} | {formatDrawTime(ticket.drawTime)}
-                                        </span>
-                                      </div>
-                                      <div className="saved-right">
-                                        <span className={`status-pill ${ticket.statusTone}`}>
-                                          {ticket.statusLabel}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    <p className="saved-line">
-                                      Seller {formatCurrency(ticket.total)} | Admin {formatCurrency(ticket.adminCollection)} | Qty {ticket.totalQty} | Paid {formatCurrency(ticket.paidAmount)} | Due {formatCurrency(ticket.dueAmount)}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </>
-                          )}
+                        <div className="saved-right">
+                          <strong>{formatCurrency(summary.sale)}</strong>
+                          <span>Admin {formatCurrency(summary.adminCollection)} | Due {formatCurrency(summary.customerDue)}</span>
                         </div>
-                    </>
-                  ) : (
-                    <p className="empty">No seller selected.</p>
-                  )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
           )}
-
-          {activeSection === "Dashboard" && (
-            <div className="glass-card">
-              <div className="section-header">
-                <h2>Dashboard</h2>
-                <span>Admin totals only. Seller drilldown is inside Seller Management.</span>
-              </div>
-
-              <div className="mini-summary admin-summary-grid">
-                <MiniStatCard label="Admin Collection" value={formatCurrency(dashboardSummary.adminCollection)} accent />
-                <MiniStatCard label="Actual Payout" value={formatCurrency(dashboardSummary.payout)} />
-                <MiniStatCard label="Seller Comm. Paid" value={formatCurrency(dashboardSummary.commission)} />
-                <MiniStatCard label="Seller Outstanding" value={formatCurrency(dashboardSummary.outstanding)} status={dashboardSummary.outstanding > 0 ? "warning" : "safe"} />
-                <MiniStatCard
-                  label="Admin Profit / Loss"
-                  value={formatCurrency(dashboardSummary.profitLoss)}
-                  status={dashboardSummary.profitLoss >= 0 ? "safe" : "danger"}
-                />
-              </div>
-            </div>
-          )}
         </main>
+
+        <nav className="admin-mobile-dock" aria-label="Admin quick navigation">
+          {adminSections.map((item) => (
+            <button
+              key={`admin-dock-${item.value}`}
+              type="button"
+              className={`admin-dock-btn ${activeSection === item.value ? "active" : ""}`}
+              onClick={() => setActiveSection(item.value)}
+              aria-current={activeSection === item.value ? "page" : undefined}
+            >
+              {item.shortLabel}
+            </button>
+          ))}
+        </nav>
       </div>
     </div>
   );
@@ -1444,6 +1556,15 @@ function getTodayString() {
   return formatDate(new Date());
 }
 
+function getDefaultAdminDrawTime(referenceDate = new Date()) {
+  const today = formatDate(referenceDate);
+  const nextOpenDraw = drawOptions.find(
+    (option) => new Date(`${today}T${getEntryCutoffValue(option.value)}:00`) >= referenceDate
+  );
+
+  return nextOpenDraw ? nextOpenDraw.value : drawOptions[drawOptions.length - 1].value;
+}
+
 function formatDate(dateValue) {
   const year = dateValue.getFullYear();
   const month = leftPad(String(dateValue.getMonth() + 1), 2, "0");
@@ -1459,6 +1580,15 @@ function formatDrawTime(value) {
 function getEntryCutoffValue(drawTime) {
   const match = drawOptions.find((option) => option.value === drawTime);
   return match && match.cutoff ? match.cutoff : drawTime;
+}
+
+function formatTimeValue(value) {
+  const [hourText = "0", minuteText = "00"] = String(value || "").split(":");
+  const hour = Number(hourText) || 0;
+  const minute = leftPad(String(Number(minuteText) || 0), 2, "0");
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const normalizedHour = hour % 12 || 12;
+  return `${normalizedHour}:${minute} ${suffix}`;
 }
 
 function leftPad(value, targetLength, fillCharacter) {

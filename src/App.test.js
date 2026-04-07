@@ -66,6 +66,10 @@ function createSuccessFetchMock() {
       return createJsonResponse({ overview: {} });
     }
 
+    if (endpoint.includes("/master/admin")) {
+      return createJsonResponse({ admin: { username: "saikat" } });
+    }
+
     if (endpoint.includes("/sellers")) {
       return createJsonResponse({ sellers: [DEFAULT_SELLER] });
     }
@@ -123,6 +127,12 @@ function setInputValue(element, value) {
   element.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function setTextareaValue(element, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+  descriptor.set.call(element, value);
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 beforeEach(() => {
   localStorage.clear();
   setPathname("/");
@@ -163,6 +173,21 @@ test("renders admin login only on admin path", async () => {
   expect(container.textContent).toContain("Admin Login");
   expect(container.textContent).toContain("Admin Access");
   expect(container.textContent).not.toContain("Seller Panel Login");
+  await unmountApp(root);
+});
+
+test("renders master login only on master path", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/master");
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Master Panel Login");
+  expect(container.textContent).toContain("Master Access");
+  expect(container.textContent).not.toContain("Seller Panel Login");
+  expect(container.textContent).not.toContain("Admin Login");
   await unmountApp(root);
 });
 
@@ -463,6 +488,89 @@ test("renders ticket store with saved ticket format", async () => {
   await unmountApp(root);
 });
 
+test("shows print option after saving a new ticket", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let tickets = [];
+  const baseFetchMock = createSuccessFetchMock();
+  const mockPrintWindow = {
+    document: {
+      open: jest.fn(),
+      write: jest.fn(),
+      close: jest.fn(),
+    },
+    focus: jest.fn(),
+    print: jest.fn(),
+    onload: null,
+  };
+  window.open = jest.fn(() => mockPrintWindow);
+
+  global.fetch = jest.fn((url, options = {}) => {
+    const endpoint = String(url);
+    const method = options.method || "GET";
+
+    if (endpoint.includes("/tickets") && method === "POST") {
+      const payload = JSON.parse(options.body);
+      tickets = [{ ...payload }];
+      return createJsonResponse({ tickets });
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const juriTextarea = container.querySelector('textarea[placeholder="45-5, 88-5, 04-10"]');
+
+  await act(async () => {
+    setTextareaValue(juriTextarea, "12-1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const saveTicketButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Save Ticket"
+  );
+
+  await act(async () => {
+    saveTicketButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("saved");
+  expect(container.textContent).toContain("Print Ticket");
+
+  const printTicketButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Print Ticket"
+  );
+
+  await act(async () => {
+    printTicketButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(window.open).toHaveBeenCalled();
+  expect(mockPrintWindow.document.write).toHaveBeenCalled();
+  expect(mockPrintWindow.focus).toHaveBeenCalled();
+  expect(typeof mockPrintWindow.onload).toBe("function");
+
+  await unmountApp(root);
+});
+
 test("claims a winning ticket once from the ticket id claim desk", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const winningTicket = {
@@ -735,5 +843,31 @@ test("renders admin panel with admin session", async () => {
 
   expect(container.textContent).toContain("Risk Board");
   expect(container.textContent).toContain("Risk Control");
+  expect(container.textContent).toContain("Seller Manage");
+  expect(container.textContent).toContain("Reports");
+  await unmountApp(root);
+});
+
+test("renders master panel with master session", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/master");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "master",
+      token: "master-token",
+      username: "master",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Master Panel");
+  expect(container.textContent).toContain("Admin Control");
+  expect(container.textContent).toContain("Seller Accounts");
+  expect(container.textContent).toContain("Admin Username");
   await unmountApp(root);
 });
