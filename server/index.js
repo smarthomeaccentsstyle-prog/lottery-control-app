@@ -22,6 +22,7 @@ const {
 } = require("./lib/reports");
 const {
   getDb,
+  getStorageInfo,
   updateDb,
 } = require("./lib/store");
 
@@ -61,10 +62,16 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (req.method === "GET" && pathname === "/api/health") {
+      const storage = getStorageInfo();
       return sendJson(res, 200, {
         ok: true,
         service: "lottery-control-backend",
         time: new Date().toISOString(),
+        storage: {
+          mode: storage.usingExternalStorage ? "external" : "bundled",
+          initializationMode: storage.initializationMode,
+          migrationSource: storage.migrationSource ? path.basename(storage.migrationSource) : "",
+        },
       });
     }
 
@@ -754,10 +761,24 @@ migrateStoredCredentials();
 
 server.listen(PORT, HOST, () => {
   const db = getDb();
+  const storage = getStorageInfo();
   console.log(`Lottery backend running on http://localhost:${PORT}`);
   getNetworkAddresses().forEach((address) => {
     console.log(`Lottery backend running on http://${address}:${PORT}`);
   });
+  console.log(`Data file: ${storage.dbFile}`);
+  console.log(`Backup file: ${storage.backupDbFile}`);
+  console.log(`Snapshot dir: ${storage.snapshotDir}`);
+  if (storage.migrationSource) {
+    console.log(`Seeded persistent data from: ${storage.migrationSource}`);
+  }
+  if (storage.usingBundledStorage) {
+    console.warn(
+      "WARNING: data is being written inside the app folder. Redeploys can reset sellers, tickets, and results. Use DATA_DIR=/data or DB_FILE on a persistent disk."
+    );
+  } else {
+    console.log("Persistent storage is active. Future code deploys will keep existing data.");
+  }
   console.log(`Loaded ${db.sellers.length} seller(s), ${db.tickets.length} ticket(s), ${db.results.length} result(s)`);
 });
 

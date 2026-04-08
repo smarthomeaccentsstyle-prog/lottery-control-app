@@ -77,11 +77,17 @@ npm run start:prod
 - same server also serves the React build from `/build`
 - all mobiles open the same public URL
 - all data writes to `DATA_DIR/db.json`
+- if `DATA_DIR/db.json` is empty on first boot, the app now tries to migrate old data from the bundled `server/data/db.json`
+- every write also keeps:
+  - `db.backup.json`
+  - rotating timestamp snapshots in `DATA_DIR/snapshots/`
 
 ## Important
 
 If you deploy without persistent storage:
 - sellers, tickets, and results may reset after redeploy or restart
+
+The code now warns in startup logs when storage is unsafe, but it still cannot magically preserve data on an ephemeral container.
 
 So for real public use, persistent volume is required until you move to:
 - PostgreSQL

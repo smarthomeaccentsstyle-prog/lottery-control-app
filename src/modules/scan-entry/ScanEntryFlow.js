@@ -4,12 +4,11 @@ import { createPortal } from "react-dom";
 import "./ScanEntry.css";
 import {
   buildManualEntryDraft,
-  buildScanReviewFromLines,
+  buildScanReviewFromScanPayload,
   createEmptyReviewState,
   findFirstIssueRow,
   getReviewStats,
   getSectionMeta,
-  getSectionOrder,
   updateReviewRow,
 } from "./scanEntryUtils.js";
 import {
@@ -21,6 +20,9 @@ import {
   startRearCamera,
   stopMediaStream,
 } from "./scanEntryOcr.js";
+import ScanEntryReview from "./ScanEntryReview.js";
+
+const SCAN_FAILURE_MESSAGE = "Scan failed. Retry or use manual entry.";
 
 function emptyEditorState() {
   return {
@@ -159,7 +161,7 @@ export default function ScanEntryFlow({
     streamRef.current = null;
     setPhase("processing");
     setProcessingProgress(0.08);
-    setProcessingLabel("Reading ticket...");
+    setProcessingLabel("Scanning...");
     setScanError("");
     setPreviewUrl(createPreviewDataUrl(rawCanvas));
 
@@ -171,19 +173,15 @@ export default function ScanEntryFlow({
           }
 
           setProcessingProgress(Math.max(0.08, Math.min(0.98, message.progress)));
-          setProcessingLabel(
-            message.status === "recognizing text"
-              ? "Reading handwritten rows..."
-              : "Preparing OCR..."
-          );
+          setProcessingLabel(message.status || "Scanning...");
         },
       });
 
-      const nextReview = buildScanReviewFromLines(result.lines, result.text);
+      const nextReview = buildScanReviewFromScanPayload(result);
       const nextStats = getReviewStats(nextReview);
 
       if (nextStats.totalRows === 0 && nextStats.ignoredCount === 0) {
-        throw new Error("No ticket rows were detected. Retake with better light or upload a clearer photo.");
+        throw new Error(SCAN_FAILURE_MESSAGE);
       }
 
       setReviewState(nextReview);
@@ -191,7 +189,9 @@ export default function ScanEntryFlow({
       setProcessingLabel("Review ready");
       setPhase("review");
     } catch (error) {
-      setScanError(error && error.message ? error.message : "Scan failed");
+      setScanError(SCAN_FAILURE_MESSAGE);
+      setPreviewUrl("");
+      setReviewState(createEmptyReviewState());
       setPhase("camera");
       setProcessingProgress(0);
       setProcessingLabel("Opening camera...");
@@ -203,7 +203,7 @@ export default function ScanEntryFlow({
       const canvas = captureVideoFrame(videoRef.current);
       await runOcr(canvas);
     } catch (error) {
-      setScanError(error && error.message ? error.message : "Camera capture failed");
+      setScanError(error && error.message ? error.message : SCAN_FAILURE_MESSAGE);
     }
   };
 
@@ -218,7 +218,7 @@ export default function ScanEntryFlow({
       const canvas = await loadFileToCanvas(nextFile);
       await runOcr(canvas);
     } catch (error) {
-      setScanError(error && error.message ? error.message : "Ticket photo could not be read");
+      setScanError(error && error.message ? error.message : SCAN_FAILURE_MESSAGE);
       setPhase("camera");
     } finally {
       event.target.value = "";
@@ -360,79 +360,28 @@ export default function ScanEntryFlow({
             </div>
             <div className="scan-processing-copy">
               <strong>{processingLabel}</strong>
-              <span>OCR is only preparing draft rows. Nothing is saved until you confirm.</span>
+              <span>Scanning handwritten rows now. Nothing is saved until you confirm.</span>
             </div>
           </div>
         ) : null}
 
         {phase === "review" ? (
-          <>
-            <div className="scan-review-summary">
-              <div className="scan-summary-card">
-                <span>Detected Rows</span>
-                <strong>{stats.totalRows}</strong>
-              </div>
-              <div className="scan-summary-card safe">
-                <span>Safe Rows</span>
-                <strong>{stats.safeCount}</strong>
-              </div>
-              <div className="scan-summary-card warning">
-                <span>Need Review</span>
-                <strong>{stats.issueCount}</strong>
-              </div>
-            </div>
-
-            {stats.ignoredCount > 0 ? (
-              <div className="scan-feedback warning">
-                {stats.ignoredCount} OCR line(s) were skipped because the format was unclear. Use Fix Now or confirm only the safe rows.
-              </div>
-            ) : null}
-
-            <div className="scan-review-sections">
-              {getSectionOrder().map((sectionKey) => (
-                <ScanReviewSection
-                  key={sectionKey}
-                  sectionKey={sectionKey}
-                  rows={reviewState.sections[sectionKey] || []}
-                  onEdit={openEditor}
-                />
-              ))}
-            </div>
-
-            <div className="scan-review-actions">
-              {!hasBlockingIssues ? (
-                <button type="button" className="scan-confirm-btn" onClick={() => confirmScan(false)}>
-                  Confirm Scan
-                </button>
-              ) : (
-                <>
-                  <button type="button" onClick={openFirstIssue}>
-                    Fix Now
-                  </button>
-                  <button
-                    type="button"
-                    className="outline-btn"
-                    onClick={() => confirmScan(true)}
-                    disabled={!hasSafeRows}
-                  >
-                    Confirm Safe Entries
-                  </button>
-                </>
-              )}
-
-              <button
-                type="button"
-                className="outline-btn"
-                onClick={() => {
-                  setPreviewUrl("");
-                  setScanError("");
-                  setPhase("camera");
-                }}
-              >
-                Retake
-              </button>
-            </div>
-          </>
+          <ScanEntryReview
+            reviewState={reviewState}
+            stats={stats}
+            hasBlockingIssues={hasBlockingIssues}
+            hasSafeRows={hasSafeRows}
+            onEdit={openEditor}
+            onFixFirstIssue={openFirstIssue}
+            onConfirmAll={() => confirmScan(false)}
+            onConfirmSafe={() => confirmScan(true)}
+            onRetake={() => {
+              setPreviewUrl("");
+              setScanError("");
+              setReviewState(createEmptyReviewState());
+              setPhase("camera");
+            }}
+          />
         ) : null}
 
         {editorState.rowId ? (
@@ -441,7 +390,7 @@ export default function ScanEntryFlow({
               <div className="scan-edit-head">
                 <div>
                   <strong>{getSectionMeta(editorState.section).label}</strong>
-                  <span>Quantity is auto-focused for quick correction.</span>
+                  <span>Number stays visible and quantity is auto-focused for fast correction.</span>
                 </div>
                 <button type="button" className="outline-btn" onClick={closeEditor}>
                   Close
@@ -471,12 +420,12 @@ export default function ScanEntryFlow({
                     ref={quantityInputRef}
                     type="text"
                     inputMode="numeric"
-                    maxLength={3}
+                    maxLength={5}
                     value={editorState.quantity}
                     onChange={(event) =>
                       setEditorState((current) => ({
                         ...current,
-                        quantity: event.target.value.replace(/[^\d]/g, "").slice(0, 3),
+                        quantity: event.target.value.replace(/[^\d]/g, "").slice(0, 5),
                       }))
                     }
                   />
@@ -537,45 +486,4 @@ export default function ScanEntryFlow({
   }
 
   return createPortal(modalContent, document.body);
-}
-
-function ScanReviewSection({ sectionKey, rows, onEdit }) {
-  const sectionMeta = getSectionMeta(sectionKey);
-
-  return (
-    <section className="scan-review-section">
-      <div className="scan-section-head">
-        <strong>{sectionMeta.label}</strong>
-        <span>{rows.length} row(s)</span>
-      </div>
-
-      {rows.length === 0 ? (
-        <p className="scan-empty-state">No rows detected.</p>
-      ) : (
-        <div className="scan-review-row-list">
-          {rows.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              className={`scan-review-row ${row.tone === "low" || !row.isValid ? "flagged" : "safe"}`}
-              onClick={() => onEdit(row)}
-            >
-              <div className="scan-review-row-main">
-                <span className="scan-review-value">
-                  {row.number || "--"} - {row.quantity || "--"}
-                </span>
-                <span className={`scan-review-status ${row.tone === "low" || !row.isValid ? "warning" : "safe"}`}>
-                  {row.tone === "low" || !row.isValid ? "Review" : "Check"}
-                </span>
-              </div>
-
-              {row.issue || row.originalPreview ? (
-                <small>{row.originalPreview || row.issue}</small>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
 }

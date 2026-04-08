@@ -59,9 +59,16 @@ Notes:
 
 ## Data File
 
-All backend data is stored in:
+Local development fallback:
 
 `server/data/db.json`
+
+Production-safe storage:
+
+- set `DATA_DIR=/data` or `DB_FILE=/data/db.json`
+- mount that path to a persistent volume
+- on first boot, if the persistent file is empty, the app will try to copy the old bundled data into it
+- every write keeps `db.backup.json` plus rotating snapshots in `snapshots/`
 
 Current sections:
 - `admin`
