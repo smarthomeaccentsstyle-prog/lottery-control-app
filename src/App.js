@@ -22,6 +22,7 @@ import {
 import LoginScreen from "./components/LoginScreen.js";
 import AdminPanel from "./components/AdminPanel.js";
 import MasterPanel from "./components/MasterPanel.js";
+import ScanEntryFlow from "./modules/scan-entry/ScanEntryFlow.js";
 import {
   PANEL_SESSION_KEY,
   SELLER_LIST_KEY,
@@ -141,6 +142,8 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [activeJuriField, setActiveJuriField] = useState("number");
   const [passwordForm, setPasswordForm] = useState(() => emptyPasswordChangeForm());
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [scanEntryOpen, setScanEntryOpen] = useState(false);
+  const [scanEntryNotice, setScanEntryNotice] = useState(null);
   const sellerSyncRef = useRef({
     ticketsSignature: buildSyncSignature(normalizeTickets(persisted.tickets)),
     resultsSignature: buildSyncSignature(persisted.winResults || {}),
@@ -172,6 +175,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
 
   useEffect(() => {
     if (activeTab !== "New Ticket") {
+      setScanEntryOpen(false);
       return;
     }
 
@@ -861,9 +865,38 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setSelectedThirdDigit(0);
     setSelectedFourthDigit(0);
     clearJuriDraft();
+    setScanEntryOpen(false);
+    setScanEntryNotice(null);
     setMobileHouseView("third");
     focusMobileTicketSection("details");
   };
+
+  const applyScanEntryDraft = useCallback(
+    (scanDraft) => {
+      setThird(Array.isArray(scanDraft.third) ? scanDraft.third : emptySingle());
+      setFourth(Array.isArray(scanDraft.fourth) ? scanDraft.fourth : emptySingle());
+      setJuriText(typeof scanDraft.juriText === "string" ? scanDraft.juriText : "");
+      setSelectedThirdDigit(
+        findFirstFilledDigit(Array.isArray(scanDraft.third) ? scanDraft.third : emptySingle())
+      );
+      setSelectedFourthDigit(
+        findFirstFilledDigit(Array.isArray(scanDraft.fourth) ? scanDraft.fourth : emptySingle())
+      );
+      clearJuriDraft();
+      setLastSavedTicketId(null);
+      setMobileHouseView(
+        Array.isArray(scanDraft.third) && scanDraft.third.some(Boolean) ? "third" : "fourth"
+      );
+      scrollToTicketSection("payment");
+      setScanEntryNotice({
+        tone: scanDraft.safeOnly ? "warning" : "success",
+        message: scanDraft.safeOnly
+          ? `${scanDraft.appliedRows.length} scanned row(s) filled. ${scanDraft.skippedRows.length} low-confidence row(s) were skipped for safety.`
+          : `${scanDraft.appliedRows.length} scanned row(s) filled into the current ticket. Review payment and tap Save Ticket when ready.`,
+      });
+    },
+    [clearJuriDraft, scrollToTicketSection]
+  );
 
   const createTicket = async () => {
     if (previewItems.length === 0) {
@@ -1065,6 +1098,8 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setPaymentMode(ticket.paymentMode);
     setPaidAmount(ticket.paymentMode === "Partial Paid" ? String(ticket.paidAmount || "") : "");
     setEditingTicketId(ticket.id);
+    setScanEntryNotice(null);
+    setScanEntryOpen(false);
     setSelectedThirdDigit(findFirstFilledDigit(formState.third));
     setSelectedFourthDigit(findFirstFilledDigit(formState.fourth));
     clearJuriDraft();
@@ -1377,334 +1412,360 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         )}
 
         {activeTab === "New Ticket" && (
-          <div className="workspace-grid ticket-workspace-grid">
-            <div className="glass-card ticket-entry-card">
-              <div className="section-header">
-                <h2>{editingTicketId ? "Edit Ticket" : "Create New Ticket"}</h2>
-                <span>
-                    {editingTicketId
-                      ? "Update the ticket before last entry time. Locked tickets cannot be changed."
-                    : "Fast ticket-first flow for mobile sellers. Pick draw, enter numbers, then save."}
-                </span>
-              </div>
-
-              {editingTicketId ? (
-                <div className="editing-banner">
-                  <strong>Editing Ticket #{editingTicketId}</strong>
-                  <span>You can still change or cancel it only until the selected last entry time.</span>
-                </div>
-              ) : null}
-
-              <div className="new-ticket-mobile-nav" aria-label="New ticket quick sections">
-                {mobileNewTicketSections.map((section) => (
-                  <button
-                    key={section.value}
-                    type="button"
-                    className={`ticket-section-btn ${mobileTicketSection === section.value ? "active" : ""}`}
-                    onClick={() => scrollToTicketSection(section.value)}
-                  >
-                    {section.label}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                ref={ticketDetailsRef}
-                className="ticket-section-block"
-                onFocusCapture={() => focusMobileTicketSection("details")}
-              >
-                <div className="form-row two">
-                  <input
-                    type="date"
-                    min={todayString}
-                    max={getLatestAllowedBookingDate()}
-                    value={date}
-                    onChange={(event) =>
-                      setDate(getNextValidBookingDate(event.target.value, drawTime))
-                    }
-                  />
-                  <select
-                    value={drawTime}
-                    onChange={(event) => {
-                      const nextDrawTime = event.target.value;
-                      setDrawTime(nextDrawTime);
-                      setDate((current) => getNextValidBookingDate(current, nextDrawTime));
-                    }}
-                  >
-                    {drawOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="booking-banner">
-                  <strong>Booking For: {effectiveTicketDate}</strong>
+          <>
+            <div className="workspace-grid ticket-workspace-grid">
+              <div className="glass-card ticket-entry-card">
+                <div className="section-header">
+                  <h2>{editingTicketId ? "Edit Ticket" : "Create New Ticket"}</h2>
                   <span>
-                    {bookingDateAdjusted
-                      ? `${formatDrawTime(drawTime)} last entry closed at ${formatEntryCutoffTime(drawTime)} for ${date}. Ticket will go to ${effectiveTicketDate}.`
-                      : `${formatDrawTime(drawTime)} ticket entry is open for ${effectiveTicketDate} until ${formatEntryCutoffTime(drawTime)}.`}
+                      {editingTicketId
+                        ? "Update the ticket before last entry time. Locked tickets cannot be changed."
+                      : "Fast ticket-first flow for mobile sellers. Pick draw, enter numbers, then save."}
                   </span>
                 </div>
 
-                <div className="fast-entry-banner">
-                  <span>Tap a digit, use the keypad like a calculator, then save. Closed same-day draws move to the next day only, and ticket booking is valid for one day ahead only.</span>
+                {editingTicketId ? (
+                  <div className="editing-banner">
+                    <strong>Editing Ticket #{editingTicketId}</strong>
+                    <span>You can still change or cancel it only until the selected last entry time.</span>
+                  </div>
+                ) : null}
+
+                <div className="new-ticket-mobile-nav" aria-label="New ticket quick sections">
+                  {mobileNewTicketSections.map((section) => (
+                    <button
+                      key={section.value}
+                      type="button"
+                      className={`ticket-section-btn ${mobileTicketSection === section.value ? "active" : ""}`}
+                      onClick={() => scrollToTicketSection(section.value)}
+                    >
+                      {section.label}
+                    </button>
+                  ))}
                 </div>
-              </div>
 
-              <div className="house-switcher" aria-label="House entry switcher">
-                <button
-                  type="button"
-                  className={`house-switcher-btn ${mobileHouseView === "third" ? "active" : ""}`}
-                  onClick={() => scrollToTicketSection("third")}
-                >
-                  3rd House
-                </button>
-                <button
-                  type="button"
-                  className={`house-switcher-btn ${mobileHouseView === "fourth" ? "active" : ""}`}
-                  onClick={() => scrollToTicketSection("fourth")}
-                >
-                  4th House
-                </button>
-              </div>
-
-              <div className="input-layout">
                 <div
-                  ref={ticketThirdRef}
-                  className={`ticket-house-panel ${mobileHouseView === "third" ? "active-mobile-panel" : ""}`}
-                  onFocusCapture={() => focusMobileTicketSection("third")}
+                  ref={ticketDetailsRef}
+                  className="ticket-section-block"
+                  onFocusCapture={() => focusMobileTicketSection("details")}
                 >
-                  <HouseCard
-                    title="3rd House"
-                    values={third}
-                    selectedDigit={selectedThirdDigit}
-                    onSelectDigit={(digit) => setSelectedSingleDigit("third", digit)}
-                    onPadInput={(action) => handleSinglePadInput("third", action)}
+                  <div className="form-row two">
+                    <input
+                      type="date"
+                      min={todayString}
+                      max={getLatestAllowedBookingDate()}
+                      value={date}
+                      onChange={(event) =>
+                        setDate(getNextValidBookingDate(event.target.value, drawTime))
+                      }
+                    />
+                    <select
+                      value={drawTime}
+                      onChange={(event) => {
+                        const nextDrawTime = event.target.value;
+                        setDrawTime(nextDrawTime);
+                        setDate((current) => getNextValidBookingDate(current, nextDrawTime));
+                      }}
+                    >
+                      {drawOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="booking-banner">
+                    <strong>Booking For: {effectiveTicketDate}</strong>
+                    <span>
+                      {bookingDateAdjusted
+                        ? `${formatDrawTime(drawTime)} last entry closed at ${formatEntryCutoffTime(drawTime)} for ${date}. Ticket will go to ${effectiveTicketDate}.`
+                        : `${formatDrawTime(drawTime)} ticket entry is open for ${effectiveTicketDate} until ${formatEntryCutoffTime(drawTime)}.`}
+                    </span>
+                  </div>
+
+                  <div className="fast-entry-banner">
+                    <span>Tap a digit, use the keypad like a calculator, then save. Closed same-day draws move to the next day only, and ticket booking is valid for one day ahead only.</span>
+                  </div>
+
+                  <div className="scan-entry-bar">
+                    <div className="scan-entry-copy">
+                      <strong>Scan Entry</strong>
+                      <span>Use camera or photo. The date and game time selected above stay active for this scanned ticket.</span>
+                    </div>
+                    <button type="button" className="scan-entry-trigger" onClick={() => setScanEntryOpen(true)}>
+                      Scan Entry
+                    </button>
+                  </div>
+
+                  {scanEntryNotice ? (
+                    <div className={`scan-entry-inline-note ${scanEntryNotice.tone}`}>
+                      <span>{scanEntryNotice.message}</span>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="house-switcher" aria-label="House entry switcher">
+                  <button
+                    type="button"
+                    className={`house-switcher-btn ${mobileHouseView === "third" ? "active" : ""}`}
+                    onClick={() => scrollToTicketSection("third")}
+                  >
+                    3rd House
+                  </button>
+                  <button
+                    type="button"
+                    className={`house-switcher-btn ${mobileHouseView === "fourth" ? "active" : ""}`}
+                    onClick={() => scrollToTicketSection("fourth")}
+                  >
+                    4th House
+                  </button>
+                </div>
+
+                <div className="input-layout">
+                  <div
+                    ref={ticketThirdRef}
+                    className={`ticket-house-panel ${mobileHouseView === "third" ? "active-mobile-panel" : ""}`}
+                    onFocusCapture={() => focusMobileTicketSection("third")}
+                  >
+                    <HouseCard
+                      title="3rd House"
+                      values={third}
+                      selectedDigit={selectedThirdDigit}
+                      onSelectDigit={(digit) => setSelectedSingleDigit("third", digit)}
+                      onPadInput={(action) => handleSinglePadInput("third", action)}
+                    />
+                  </div>
+                  <div
+                    ref={ticketFourthRef}
+                    className={`ticket-house-panel ${mobileHouseView === "fourth" ? "active-mobile-panel" : ""}`}
+                    onFocusCapture={() => focusMobileTicketSection("fourth")}
+                  >
+                    <HouseCard
+                      title="4th House"
+                      values={fourth}
+                      selectedDigit={selectedFourthDigit}
+                      onSelectDigit={(digit) => setSelectedSingleDigit("fourth", digit)}
+                      onPadInput={(action) => handleSinglePadInput("fourth", action)}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  ref={ticketJuriRef}
+                  className="glass-panel ticket-section-block"
+                  onFocusCapture={() => focusMobileTicketSection("juri")}
+                >
+                  <div className="panel-title-row">
+                    <strong>Juri Entry</strong>
+                    <span>Enter number, enter qty, then add.</span>
+                  </div>
+
+                  <div className="juri-draft-grid">
+                    <button
+                      type="button"
+                      className={`juri-draft-card ${activeJuriField === "number" ? "active" : ""}`}
+                      onClick={() => setActiveJuriField("number")}
+                    >
+                      <span>Juri Number</span>
+                      <strong>{juriDraftNumber ? leftPad(juriDraftNumber, 2, "0") : "--"}</strong>
+                    </button>
+                    <button
+                      type="button"
+                      className={`juri-draft-card ${activeJuriField === "qty" ? "active" : ""}`}
+                      onClick={() => setActiveJuriField("qty")}
+                    >
+                      <span>Quantity</span>
+                      <strong>{juriDraftQty || "0"}</strong>
+                    </button>
+                  </div>
+
+                  <FastKeypad
+                    onInput={handleJuriPadInput}
+                    primaryActionLabel="Add Juri"
+                    onPrimaryAction={() => handleJuriPadInput("add")}
+                    secondaryActions={[
+                      {
+                        label: "Undo Last",
+                        action: () => handleJuriPadInput("undo"),
+                      },
+                      {
+                        label: "Clear Draft",
+                        action: () => handleJuriPadInput("clear"),
+                      },
+                    ]}
                   />
+
+                  <div className="juri-entry-preview">
+                    <div className="panel-title-row">
+                      <strong>Saved Juri Rows</strong>
+                      <span>{parsedJuri.entries.length} valid row(s)</span>
+                    </div>
+                    {parsedJuri.entries.length === 0 ? (
+                      <p className="empty">No juri rows yet.</p>
+                    ) : (
+                      <div className="juri-chip-list">
+                        {parsedJuri.entries.map((item, index) => (
+                          <div key={`juri-preview-${item.num}-${item.qty}-${index}`} className="juri-chip">
+                            <span>{item.num}</span>
+                            <strong>x {item.qty}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bulk-entry-backup">
+                    <div className="panel-title-row">
+                      <strong>Bulk Paste Backup</strong>
+                      <span>Example: 45-5, 88-5, 04-10</span>
+                    </div>
+                    <textarea
+                      className="bulk-textarea"
+                      value={juriText}
+                      onChange={(event) => setJuriText(event.target.value)}
+                      placeholder="45-5, 88-5, 04-10"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  {parsedJuri.invalid.length > 0 ? (
+                    <p className="warning-line">
+                      Ignored invalid entries: {parsedJuri.invalid.join(", ")}
+                    </p>
+                  ) : (
+                    <p className="success-line">All juri entries are valid.</p>
+                  )}
                 </div>
-                <div
-                  ref={ticketFourthRef}
-                  className={`ticket-house-panel ${mobileHouseView === "fourth" ? "active-mobile-panel" : ""}`}
-                  onFocusCapture={() => focusMobileTicketSection("fourth")}
-                >
-                  <HouseCard
-                    title="4th House"
-                    values={fourth}
-                    selectedDigit={selectedFourthDigit}
-                    onSelectDigit={(digit) => setSelectedSingleDigit("fourth", digit)}
-                    onPadInput={(action) => handleSinglePadInput("fourth", action)}
+
+                <div className="mini-summary">
+                  <MiniBox label="Single Qty" value={previewSummary.singleQty} />
+                  <MiniBox label="Juri Qty" value={previewSummary.juriQty} />
+                  <MiniBox
+                    label="Ticket Sale"
+                    value={formatCurrency(previewSummary.total)}
+                    premium
                   />
                 </div>
               </div>
 
               <div
-                ref={ticketJuriRef}
-                className="glass-panel ticket-section-block"
-                onFocusCapture={() => focusMobileTicketSection("juri")}
+                ref={ticketPaymentRef}
+                className="glass-card ticket-save-card"
+                onFocusCapture={() => focusMobileTicketSection("payment")}
               >
-                <div className="panel-title-row">
-                  <strong>Juri Entry</strong>
-                  <span>Enter number, enter qty, then add.</span>
+                <div className="section-header">
+                  <h2>Customer, Payment and Save</h2>
+                  <span>Optional customer details, payment mode and final save action.</span>
                 </div>
 
-                <div className="juri-draft-grid">
-                  <button
-                    type="button"
-                    className={`juri-draft-card ${activeJuriField === "number" ? "active" : ""}`}
-                    onClick={() => setActiveJuriField("number")}
-                  >
-                    <span>Juri Number</span>
-                    <strong>{juriDraftNumber ? leftPad(juriDraftNumber, 2, "0") : "--"}</strong>
-                  </button>
-                  <button
-                    type="button"
-                    className={`juri-draft-card ${activeJuriField === "qty" ? "active" : ""}`}
-                    onClick={() => setActiveJuriField("qty")}
-                  >
-                    <span>Quantity</span>
-                    <strong>{juriDraftQty || "0"}</strong>
-                  </button>
-                </div>
-
-                <FastKeypad
-                  onInput={handleJuriPadInput}
-                  primaryActionLabel="Add Juri"
-                  onPrimaryAction={() => handleJuriPadInput("add")}
-                  secondaryActions={[
-                    {
-                      label: "Undo Last",
-                      action: () => handleJuriPadInput("undo"),
-                    },
-                    {
-                      label: "Clear Draft",
-                      action: () => handleJuriPadInput("clear"),
-                    },
-                  ]}
-                />
-
-                <div className="juri-entry-preview">
-                  <div className="panel-title-row">
-                    <strong>Saved Juri Rows</strong>
-                    <span>{parsedJuri.entries.length} valid row(s)</span>
-                  </div>
-                  {parsedJuri.entries.length === 0 ? (
-                    <p className="empty">No juri rows yet.</p>
-                  ) : (
-                    <div className="juri-chip-list">
-                      {parsedJuri.entries.map((item, index) => (
-                        <div key={`juri-preview-${item.num}-${item.qty}-${index}`} className="juri-chip">
-                          <span>{item.num}</span>
-                          <strong>x {item.qty}</strong>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="bulk-entry-backup">
-                  <div className="panel-title-row">
-                    <strong>Bulk Paste Backup</strong>
-                    <span>Example: 45-5, 88-5, 04-10</span>
-                  </div>
-                  <textarea
-                    className="bulk-textarea"
-                    value={juriText}
-                    onChange={(event) => setJuriText(event.target.value)}
-                    placeholder="45-5, 88-5, 04-10"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
+                <div className="form-row two">
+                  <input
+                    value={customerName}
+                    onChange={(event) => setCustomerName(event.target.value)}
+                    placeholder="Customer Name"
+                    autoComplete="off"
+                    enterKeyHint="next"
+                  />
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(event) => setCustomerPhone(event.target.value)}
+                    placeholder="Customer Phone"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    enterKeyHint="next"
                   />
                 </div>
 
-                {parsedJuri.invalid.length > 0 ? (
-                  <p className="warning-line">
-                    Ignored invalid entries: {parsedJuri.invalid.join(", ")}
-                  </p>
-                ) : (
-                  <p className="success-line">All juri entries are valid.</p>
-                )}
-              </div>
+                <div className="form-row">
+                  <select value={paymentMode} onChange={(event) => setPaymentMode(event.target.value)}>
+                    <option value="Paid">Paid</option>
+                    <option value="Partial Paid">Partial Paid</option>
+                    <option value="Unpaid">Unpaid</option>
+                  </select>
+                </div>
 
-              <div className="mini-summary">
-                <MiniBox label="Single Qty" value={previewSummary.singleQty} />
-                <MiniBox label="Juri Qty" value={previewSummary.juriQty} />
-                <MiniBox
-                  label="Ticket Sale"
-                  value={formatCurrency(previewSummary.total)}
-                  premium
-                />
+                <div className="form-row">
+                  <input
+                    type="tel"
+                    value={paidAmount}
+                    onChange={(event) => setPaidAmount(event.target.value.replace(/[^\d]/g, ""))}
+                    placeholder="Paid Amount"
+                    disabled={paymentMode !== "Partial Paid"}
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="preview-grid compact">
+                  <PreviewBox label="Commission" value={formatCurrency(previewSummary.commission)} />
+                  <PreviewBox label="Paid" value={formatCurrency(effectivePaidAmount)} />
+                  <PreviewBox label="Due" value={formatCurrency(currentDue)} />
+                </div>
+
+                <div className="footer-actions ticket-save-actions">
+                  <button onClick={createTicket}>
+                    {editingTicketId ? "Update Ticket" : "Save Ticket"}
+                  </button>
+                  <button className="outline-btn" onClick={clearForm}>
+                    {editingTicketId ? "Close Edit" : "Reset"}
+                  </button>
+                </div>
+
+                {lastSavedTicketId ? (
+                  <div className="ticket-save-feedback">
+                    <div>
+                      <strong>Ticket #{lastSavedTicketId} saved</strong>
+                      <span>
+                        {lastSavedTicket
+                          ? `${formatDrawTime(lastSavedTicket.drawTime)} | ${lastSavedTicket.date} | ${formatCurrency(lastSavedTicket.total)}`
+                          : "Print it now or reprint later from Ticket Store."}
+                      </span>
+                    </div>
+                    <div className="ticket-save-feedback-actions">
+                      <button
+                        type="button"
+                        className="outline-btn"
+                        onClick={() => printTicket(lastSavedTicketId)}
+                      >
+                        Print Ticket
+                      </button>
+                      <button
+                        type="button"
+                        className="outline-btn"
+                        onClick={() => setLastSavedTicketId(null)}
+                      >
+                        Hide
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="entered-list ticket-entered-list">
+                  <div className="panel-title-row">
+                    <strong>Entered Items</strong>
+                    <span>{previewItems.length} item(s)</span>
+                  </div>
+                  {previewItems.length === 0 ? (
+                    <p className="empty">No items yet.</p>
+                  ) : (
+                    <TicketFormat layout={previewTicketLayout} />
+                  )}
+                </div>
               </div>
             </div>
 
-            <div
-              ref={ticketPaymentRef}
-              className="glass-card ticket-save-card"
-              onFocusCapture={() => focusMobileTicketSection("payment")}
-            >
-              <div className="section-header">
-                <h2>Customer, Payment and Save</h2>
-                <span>Optional customer details, payment mode and final save action.</span>
-              </div>
-
-              <div className="form-row two">
-                <input
-                  value={customerName}
-                  onChange={(event) => setCustomerName(event.target.value)}
-                  placeholder="Customer Name"
-                  autoComplete="off"
-                  enterKeyHint="next"
-                />
-                <input
-                  type="tel"
-                  value={customerPhone}
-                  onChange={(event) => setCustomerPhone(event.target.value)}
-                  placeholder="Customer Phone"
-                  inputMode="numeric"
-                  autoComplete="tel"
-                  enterKeyHint="next"
-                />
-              </div>
-
-              <div className="form-row">
-                <select value={paymentMode} onChange={(event) => setPaymentMode(event.target.value)}>
-                  <option value="Paid">Paid</option>
-                  <option value="Partial Paid">Partial Paid</option>
-                  <option value="Unpaid">Unpaid</option>
-                </select>
-              </div>
-
-              <div className="form-row">
-                <input
-                  type="tel"
-                  value={paidAmount}
-                  onChange={(event) => setPaidAmount(event.target.value.replace(/[^\d]/g, ""))}
-                  placeholder="Paid Amount"
-                  disabled={paymentMode !== "Partial Paid"}
-                  inputMode="numeric"
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="preview-grid compact">
-                <PreviewBox label="Commission" value={formatCurrency(previewSummary.commission)} />
-                <PreviewBox label="Paid" value={formatCurrency(effectivePaidAmount)} />
-                <PreviewBox label="Due" value={formatCurrency(currentDue)} />
-              </div>
-
-              <div className="footer-actions ticket-save-actions">
-                <button onClick={createTicket}>
-                  {editingTicketId ? "Update Ticket" : "Save Ticket"}
-                </button>
-                <button className="outline-btn" onClick={clearForm}>
-                  {editingTicketId ? "Close Edit" : "Reset"}
-                </button>
-              </div>
-
-              {lastSavedTicketId ? (
-                <div className="ticket-save-feedback">
-                  <div>
-                    <strong>Ticket #{lastSavedTicketId} saved</strong>
-                    <span>
-                      {lastSavedTicket
-                        ? `${formatDrawTime(lastSavedTicket.drawTime)} | ${lastSavedTicket.date} | ${formatCurrency(lastSavedTicket.total)}`
-                        : "Print it now or reprint later from Ticket Store."}
-                    </span>
-                  </div>
-                  <div className="ticket-save-feedback-actions">
-                    <button
-                      type="button"
-                      className="outline-btn"
-                      onClick={() => printTicket(lastSavedTicketId)}
-                    >
-                      Print Ticket
-                    </button>
-                    <button
-                      type="button"
-                      className="outline-btn"
-                      onClick={() => setLastSavedTicketId(null)}
-                    >
-                      Hide
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="entered-list ticket-entered-list">
-                <div className="panel-title-row">
-                  <strong>Entered Items</strong>
-                  <span>{previewItems.length} item(s)</span>
-                </div>
-                {previewItems.length === 0 ? (
-                  <p className="empty">No items yet.</p>
-                ) : (
-                  <TicketFormat layout={previewTicketLayout} />
-                )}
-              </div>
-            </div>
-          </div>
+            <ScanEntryFlow
+              isOpen={scanEntryOpen}
+              bookingDate={effectiveTicketDate}
+              drawLabel={formatDrawTime(drawTime)}
+              onApply={applyScanEntryDraft}
+              onClose={() => setScanEntryOpen(false)}
+            />
+          </>
         )}
 
         {activeTab === "Ticket Store" && (
@@ -3115,6 +3176,9 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [backendStatus, setBackendStatus] = useState("");
   const [backendState, setBackendState] = useState("checking");
+  const [sessionRestorePending, setSessionRestorePending] = useState(() =>
+    Boolean(load(PANEL_SESSION_KEY, null))
+  );
   const [sellerSyncToken, setSellerSyncToken] = useState(0);
   const hasSession = Boolean(session);
   const sessionToken = session && session.token ? session.token : "";
@@ -3131,6 +3195,7 @@ export default function App() {
       localStorage.removeItem(PANEL_SESSION_KEY);
     } catch {}
 
+    setSessionRestorePending(false);
     setSession(null);
   }, []);
 
@@ -3150,8 +3215,13 @@ export default function App() {
     let active = true;
 
     const loadBootstrapData = async () => {
+      const shouldRestoreExistingSession = Boolean(
+        session && session.role === accessMode && session.token
+      );
+
       try {
         setBackendState("checking");
+        setSessionRestorePending(shouldRestoreExistingSession);
         const response = await fetchBootstrap();
 
         if (!active) {
@@ -3162,6 +3232,7 @@ export default function App() {
 
         if (hasSession) {
           if (!sessionToken) {
+            setSessionRestorePending(false);
             clearSavedSession();
             setBackendStatus("Session expired. Please login again.");
             return;
@@ -3175,11 +3246,16 @@ export default function App() {
 
           save(PANEL_SESSION_KEY, verifyResponse.session);
           setSession(verifyResponse.session);
+          setSessionRestorePending(false);
+        } else {
+          setSessionRestorePending(false);
         }
       } catch (error) {
         if (!active) {
           return;
         }
+
+        setSessionRestorePending(false);
 
         if (isBackendOfflineError(error && error.message)) {
           markBackendOffline(true);
@@ -3205,6 +3281,7 @@ export default function App() {
     const handleAuthExpired = (event) => {
       clearSavedSession();
       setPassword("");
+      setSessionRestorePending(false);
       setBackendState("ready");
       setBackendStatus(
         event && event.detail && event.detail.message
@@ -3223,6 +3300,7 @@ export default function App() {
   const handleRetry = async () => {
     try {
       setBackendState("checking");
+      setSessionRestorePending(false);
       const response = await fetchBootstrap();
       applyBootstrapData(response);
     } catch {
@@ -3259,6 +3337,7 @@ export default function App() {
       setSellerSyncToken((current) => current + 1);
       setSession(nextSession);
       setPassword("");
+      setSessionRestorePending(false);
       setBackendState("ready");
       setBackendStatus("");
     } catch (error) {
@@ -3295,6 +3374,24 @@ export default function App() {
       clearSavedSession();
     }
   }, [accessMode, clearSavedSession, session]);
+
+  if (session && session.role === accessMode && sessionRestorePending) {
+    return (
+      <LoginScreen
+        role={accessMode}
+        username=""
+        setUsername={setUsername}
+        password=""
+        setPassword={setPassword}
+        onLogin={handleLogin}
+        onRetry={backendState === "offline" ? handleRetry : undefined}
+        loading
+        statusMessage={backendStatus}
+        restoringSession
+        sessionLabel={session.sellerName || session.username || accessMode}
+      />
+    );
+  }
 
   if (!session || backendState !== "ready" || session.role !== accessMode) {
     return (

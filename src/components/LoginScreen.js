@@ -8,6 +8,8 @@ export default function LoginScreen({
   onRetry,
   loading = false,
   statusMessage = "",
+  restoringSession = false,
+  sessionLabel = "",
 }) {
   const isAdmin = role === "admin";
   const isMaster = role === "master";
@@ -23,6 +25,46 @@ export default function LoginScreen({
     : isAdmin
       ? "Admin Username"
       : "Seller Username";
+
+  if (restoringSession) {
+    return (
+      <div className="login-shell">
+        <div className="login-card session-restore-card">
+          <div className="login-kicker">{accessLabel}</div>
+          <h1>Restoring Session</h1>
+          <p className="login-copy">
+            {sessionLabel
+              ? `${sessionLabel} is being restored securely.`
+              : "Checking your saved session securely."}
+          </p>
+
+          <div className="session-restore-status" aria-live="polite">
+            <div className="session-restore-spinner" aria-hidden="true" />
+            <div>
+              <strong>Checking saved login...</strong>
+              <span>Hold on for a moment.</span>
+            </div>
+          </div>
+
+          {statusMessage ? (
+            <div className="login-status">
+              <span>{statusMessage}</span>
+              {onRetry ? (
+                <button
+                  type="button"
+                  className="outline-btn login-retry-btn"
+                  onClick={onRetry}
+                  disabled={loading}
+                >
+                  {loading ? "Checking..." : "Retry"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-shell">

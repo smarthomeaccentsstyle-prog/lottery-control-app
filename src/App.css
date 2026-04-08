@@ -331,6 +331,54 @@ button.seller-priority-card.active {
   flex: 1;
 }
 
+.session-restore-card {
+  display: grid;
+  gap: 18px;
+}
+
+.session-restore-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(59, 130, 246, 0.24);
+}
+
+.session-restore-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(96, 165, 250, 0.2);
+  border-top-color: #60a5fa;
+  animation: session-spin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
+
+.session-restore-status strong {
+  display: block;
+  color: #f8fbff;
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.session-restore-status span {
+  color: #9db0d3;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@keyframes session-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .login-retry-btn {
   min-height: 40px;
   padding: 10px 14px;
@@ -732,6 +780,89 @@ button.admin-priority-card.active {
   margin-bottom: 18px;
 }
 
+.admin-risk-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-risk-command-card {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-risk-command-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.admin-risk-command-hero strong {
+  color: #f8fbff;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1;
+}
+
+.admin-risk-command-hero span {
+  color: #f8fbff;
+  font-size: clamp(1rem, 2.6vw, 1.35rem);
+  font-weight: 800;
+  text-align: right;
+}
+
+.admin-risk-command-copy {
+  margin: 0;
+  color: #c7d2e7;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.admin-risk-action-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-risk-action {
+  border-radius: 16px;
+  border: 1px solid rgba(36, 50, 78, 0.95);
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  background: rgba(10, 17, 29, 0.98);
+}
+
+.admin-risk-action-head,
+.admin-risk-action-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.admin-risk-action-head strong,
+.admin-risk-action-meta strong {
+  color: #f8fbff;
+}
+
+.admin-risk-action-head span,
+.admin-risk-action-meta span {
+  color: #9fb1d3;
+  font-size: 12px;
+}
+
+.admin-risk-empty {
+  border-radius: 16px;
+  border: 1px dashed rgba(59, 130, 246, 0.28);
+  padding: 14px;
+  color: #9fb1d3;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .admin-risk-toolbar {
   display: grid;
   gap: 12px;
@@ -857,17 +988,27 @@ button.admin-priority-card.active {
   gap: 12px;
 }
 
-.dense-risk-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
 .admin-risk-card {
   background: rgba(10, 17, 29, 0.98);
   border: 1px solid rgba(36, 50, 78, 0.95);
   border-radius: 14px;
   padding: 14px 12px;
   display: grid;
-  gap: 6px;
+  gap: 10px;
+}
+
+.admin-risk-card-top,
+.admin-risk-card-footer,
+.admin-juri-mini-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-risk-card-metrics {
+  display: grid;
+  gap: 4px;
 }
 
 .admin-risk-card strong {
@@ -878,6 +1019,38 @@ button.admin-priority-card.active {
 .admin-risk-card span {
   color: #8d9bb3;
   font-size: 12px;
+}
+
+.admin-risk-card-footer strong {
+  font-size: 15px;
+}
+
+.admin-risk-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-risk-chip-safe {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+.admin-risk-chip-warning {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+.admin-risk-chip-danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
 }
 
 .admin-risk-safe {
@@ -892,6 +1065,66 @@ button.admin-priority-card.active {
 .admin-risk-danger {
   border-color: rgba(239, 68, 68, 0.4);
   background: linear-gradient(180deg, rgba(44, 17, 17, 0.98), rgba(10, 17, 29, 0.98));
+}
+
+.admin-juri-top-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.admin-juri-top-chip {
+  min-width: 116px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(36, 50, 78, 0.95);
+  display: grid;
+  gap: 4px;
+  background: rgba(10, 17, 29, 0.98);
+}
+
+.admin-juri-top-chip span {
+  color: #9fb1d3;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-juri-top-chip strong {
+  color: #f8fbff;
+  font-size: 16px;
+}
+
+.admin-juri-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-juri-mini-box {
+  min-height: 62px;
+  padding: 10px 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(36, 50, 78, 0.95);
+  background: rgba(10, 17, 29, 0.98);
+  display: grid;
+  gap: 8px;
+}
+
+.admin-juri-mini-box strong {
+  color: #f8fbff;
+  font-size: 16px;
+}
+
+.admin-juri-mini-box span,
+.admin-juri-mini-box small {
+  color: #9fb1d3;
+  font-size: 11px;
+}
+
+.admin-juri-mini-box.active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .admin-workspace-grid {
@@ -1130,6 +1363,58 @@ textarea::placeholder {
   color: #9fb1d3;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.scan-entry-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(13, 31, 53, 0.96), rgba(10, 17, 29, 0.98));
+  border: 1px solid rgba(49, 89, 170, 0.45);
+}
+
+.scan-entry-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.scan-entry-copy strong {
+  color: #f8fbff;
+  font-size: 15px;
+}
+
+.scan-entry-copy span {
+  color: #a9bbdb;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.scan-entry-trigger {
+  min-width: 132px;
+}
+
+.scan-entry-inline-note {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.scan-entry-inline-note.success {
+  color: #cbf7d8;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.scan-entry-inline-note.warning {
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
 .bulk-textarea {
@@ -2128,6 +2413,7 @@ textarea::placeholder {
   .admin-highlight-grid,
   .master-business-grid,
   .master-leader-grid,
+  .admin-risk-command-grid,
   .admin-insight-grid,
   .report-range-grid,
   .result-grid,
@@ -2135,8 +2421,7 @@ textarea::placeholder {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .admin-risk-grid,
-  .dense-risk-grid {
+  .admin-risk-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
@@ -2157,11 +2442,11 @@ textarea::placeholder {
 
 @media (max-width: 768px) {
   .seller-app {
-    padding-bottom: calc(128px + env(safe-area-inset-bottom));
+    padding-bottom: calc(168px + env(safe-area-inset-bottom));
   }
 
   .admin-app {
-    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+    padding-bottom: calc(168px + env(safe-area-inset-bottom));
   }
 
   .app {
@@ -2213,6 +2498,15 @@ textarea::placeholder {
   .hero-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .scan-entry-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scan-entry-trigger {
     width: 100%;
   }
 
@@ -2302,6 +2596,7 @@ textarea::placeholder {
   .mini-summary,
   .admin-summary-grid,
   .admin-highlight-grid,
+  .admin-risk-command-grid,
   .admin-workspace-grid,
   .admin-priority-strip,
   .master-business-grid,
@@ -2322,9 +2617,22 @@ textarea::placeholder {
   .input-layout,
   .admin-insight-grid,
   .admin-draw-chip-row,
-  .admin-risk-grid,
-  .dense-risk-grid {
+  .admin-risk-command-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-risk-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-juri-mini-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .admin-risk-command-hero,
+  .admin-risk-action-head,
+  .admin-risk-action-meta {
+    align-items: flex-start;
   }
 
   .admin-menu {
@@ -2424,10 +2732,8 @@ textarea::placeholder {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 10px;
     border-radius: 16px;
-    background: rgba(12, 19, 34, 0.92);
+    background: rgba(11, 18, 31, 0.98);
     border: 1px solid rgba(36, 50, 78, 0.92);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
   }
 
   .seller-mobile-toolbar {
@@ -2436,10 +2742,8 @@ textarea::placeholder {
     z-index: 10;
     padding: 10px;
     border-radius: 16px;
-    background: rgba(12, 19, 34, 0.94);
+    background: rgba(11, 18, 31, 0.98);
     border: 1px solid rgba(36, 50, 78, 0.92);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
   }
 
   .ticket-card-actions {
@@ -2466,11 +2770,9 @@ textarea::placeholder {
     gap: 6px;
     padding: 8px;
     border-radius: 20px;
-    background: rgba(8, 13, 24, 0.96);
+    background: rgba(8, 13, 24, 0.99);
     border: 1px solid rgba(36, 50, 78, 0.94);
-    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
   }
 
   .admin-mobile-dock {
@@ -2484,11 +2786,9 @@ textarea::placeholder {
     gap: 6px;
     padding: 8px;
     border-radius: 20px;
-    background: rgba(8, 13, 24, 0.96);
+    background: rgba(8, 13, 24, 0.99);
     border: 1px solid rgba(36, 50, 78, 0.94);
-    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
   }
 
   .seller-dock-btn {
@@ -2592,6 +2892,7 @@ textarea::placeholder {
   .preview-grid,
   .report-range-grid,
   .admin-highlight-grid,
+  .admin-risk-command-grid,
   .master-business-grid,
   .master-leader-grid,
   .master-summary-grid,
@@ -2614,6 +2915,20 @@ textarea::placeholder {
 
   .hero-actions {
     grid-template-columns: 1fr;
+  }
+
+  .admin-risk-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-juri-mini-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .admin-risk-card-top,
+  .admin-risk-card-footer {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .hero p {
@@ -2753,7 +3068,7 @@ textarea::placeholder {
   .seller-mobile-dock {
     left: 10px;
     right: 10px;
-    bottom: calc(8px + env(safe-area-inset-bottom));
+    bottom: calc(10px + env(safe-area-inset-bottom));
     padding: 6px;
     gap: 6px;
     border-radius: 18px;
@@ -2768,7 +3083,7 @@ textarea::placeholder {
   .admin-mobile-dock {
     left: 10px;
     right: 10px;
-    bottom: calc(8px + env(safe-area-inset-bottom));
+    bottom: calc(10px + env(safe-area-inset-bottom));
     padding: 6px;
     gap: 6px;
     border-radius: 18px;

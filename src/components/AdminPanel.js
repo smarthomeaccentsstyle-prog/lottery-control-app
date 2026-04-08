@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { save } from "../untils/storage.js";
 import {
@@ -84,23 +84,73 @@ export default function AdminPanel({ session, onLogout }) {
   const [sellerFilteredReport, setSellerFilteredReport] = useState(() =>
     emptySellerReport()
   );
+  const adminSyncRef = useRef({
+    sellerStateSignature: "",
+    sellersSignature: "",
+    riskSignature: "",
+    overviewSignature: "",
+    interactionUntil: 0,
+  });
 
-  const syncAdminData = useCallback(async () => {
+  const markInteraction = useCallback((duration = 1800) => {
+    adminSyncRef.current.interactionUntil = Date.now() + duration;
+  }, []);
+
+  const shouldPauseAdminRefresh = useCallback(() => {
+    if (typeof document !== "undefined") {
+      if (document.hidden) {
+        return true;
+      }
+
+      const activeElement = document.activeElement;
+
+      if (
+        activeSection === "Seller Manage" &&
+        activeElement &&
+        ["INPUT", "TEXTAREA", "SELECT"].includes(activeElement.tagName)
+      ) {
+        return true;
+      }
+    }
+
+    if (sellerLoading || sellerReportLoading || adminPasswordLoading) {
+      return true;
+    }
+
+    return Date.now() < adminSyncRef.current.interactionUntil;
+  }, [activeSection, adminPasswordLoading, sellerLoading, sellerReportLoading]);
+
+  const syncAdminData = useCallback(async ({ force = false } = {}) => {
+    if (!force && shouldPauseAdminRefresh()) {
+      return;
+    }
+
     try {
       const [ticketsResponse, resultsResponse, sellersResponse] = await Promise.all([
         fetchTicketsApi(),
         fetchResultsApi(),
         fetchSellersApi(),
       ]);
-
-      setSellerState({
+      const nextSellerState = {
         tickets: normalizeAdminTickets(ticketsResponse.tickets || []),
         winResults: mapResultsToLookup(resultsResponse.results || []),
-      });
-      setSellers(sellersResponse.sellers || []);
+      };
+      const nextSellers = sellersResponse.sellers || [];
+      const sellerStateSignature = buildStateSignature(nextSellerState);
+      const sellersSignature = buildStateSignature(nextSellers);
+
+      if (adminSyncRef.current.sellerStateSignature !== sellerStateSignature) {
+        adminSyncRef.current.sellerStateSignature = sellerStateSignature;
+        setSellerState(nextSellerState);
+      }
+
+      if (adminSyncRef.current.sellersSignature !== sellersSignature) {
+        adminSyncRef.current.sellersSignature = sellersSignature;
+        setSellers(nextSellers);
+      }
     } catch {
     }
-  }, []);
+  }, [shouldPauseAdminRefresh]);
 
   useEffect(() => {
     let active = true;
@@ -113,8 +163,8 @@ export default function AdminPanel({ session, onLogout }) {
       await syncAdminData();
     };
 
-    syncLoop();
-    const intervalId = window.setInterval(syncLoop, 4000);
+    syncAdminData({ force: true });
+    const intervalId = window.setInterval(syncLoop, 10000);
 
     return () => {
       active = false;
@@ -123,32 +173,27 @@ export default function AdminPanel({ session, onLogout }) {
   }, [syncAdminData]);
 
   useEffect(() => {
-    let active = true;
-
-    const loadSellers = async () => {
-      try {
-        setSellerLoading(true);
-        const response = await fetchSellersApi();
-
-        if (!active) {
-          return;
-        }
-
-        setSellers(response.sellers || []);
-      } catch {
-      } finally {
-        if (active) {
-          setSellerLoading(false);
-        }
-      }
+    const handlePointerInteraction = () => {
+      markInteraction(1800);
+    };
+    const handleScrollInteraction = () => {
+      markInteraction(900);
     };
 
-    loadSellers();
+    window.addEventListener("pointerdown", handlePointerInteraction, { passive: true });
+    window.addEventListener("touchstart", handlePointerInteraction, { passive: true });
+    window.addEventListener("keydown", handlePointerInteraction);
+    window.addEventListener("scroll", handleScrollInteraction, { passive: true });
+    window.addEventListener("focusin", handlePointerInteraction, true);
 
     return () => {
-      active = false;
+      window.removeEventListener("pointerdown", handlePointerInteraction);
+      window.removeEventListener("touchstart", handlePointerInteraction);
+      window.removeEventListener("keydown", handlePointerInteraction);
+      window.removeEventListener("scroll", handleScrollInteraction);
+      window.removeEventListener("focusin", handlePointerInteraction, true);
     };
-  }, []);
+  }, [markInteraction]);
 
   useEffect(() => {
     save(SELLER_LIST_KEY, sellers);
@@ -175,6 +220,10 @@ export default function AdminPanel({ session, onLogout }) {
     () => normalizeAdminTickets(sellerState.tickets).filter((ticket) => !ticket.cancelled),
     [sellerState.tickets]
   );
+  const localDashboardSummary = useMemo(
+    () => buildAdminDashboard(activeTickets, sellerState.winResults),
+    [activeTickets, sellerState.winResults]
+  );
 
   const selectedDrawTickets = useMemo(
     () =>
@@ -185,9 +234,24 @@ export default function AdminPanel({ session, onLogout }) {
   );
 
   useEffect(() => {
+    const localRiskBoard = buildRiskBoard(selectedDrawTickets);
+    const localRiskSignature = buildStateSignature(localRiskBoard);
+
+    if (activeSection !== "Risk Board") {
+      if (adminSyncRef.current.riskSignature !== localRiskSignature) {
+        adminSyncRef.current.riskSignature = localRiskSignature;
+        setRiskBoard(localRiskBoard);
+      }
+      return undefined;
+    }
+
     let active = true;
 
-    const loadRiskBoard = async () => {
+    const loadRiskBoard = async (force = false) => {
+      if (!force && shouldPauseAdminRefresh()) {
+        return;
+      }
+
       try {
         const response = await fetchRiskBoardApi({
           date: selectedDate,
@@ -198,22 +262,29 @@ export default function AdminPanel({ session, onLogout }) {
           return;
         }
 
-        setRiskBoard(normalizeRiskBoardResponse(response.riskBoard));
+        const nextRiskBoard = normalizeRiskBoardResponse(response.riskBoard);
+        const nextSignature = buildStateSignature(nextRiskBoard);
+
+        if (adminSyncRef.current.riskSignature !== nextSignature) {
+          adminSyncRef.current.riskSignature = nextSignature;
+          setRiskBoard(nextRiskBoard);
+        }
       } catch {
-        if (active) {
-          setRiskBoard(buildRiskBoard(selectedDrawTickets));
+        if (active && adminSyncRef.current.riskSignature !== localRiskSignature) {
+          adminSyncRef.current.riskSignature = localRiskSignature;
+          setRiskBoard(localRiskBoard);
         }
       }
     };
 
-    loadRiskBoard();
-    const intervalId = window.setInterval(loadRiskBoard, 4000);
+    loadRiskBoard(true);
+    const intervalId = window.setInterval(loadRiskBoard, 8000);
 
     return () => {
       active = false;
       window.clearInterval(intervalId);
     };
-  }, [selectedDate, selectedDrawTime, selectedDrawTickets]);
+  }, [activeSection, selectedDate, selectedDrawTime, selectedDrawTickets, shouldPauseAdminRefresh]);
 
   const highestRisk = useMemo(
     () => ({
@@ -232,13 +303,31 @@ export default function AdminPanel({ session, onLogout }) {
     }),
     [riskBoard]
   );
+  const resultPressureRows = useMemo(
+    () =>
+      buildResultPressureRows(
+        riskBoard.thirdRows,
+        riskBoard.fourthRows,
+        riskBoard.juriRows,
+        riskBoard.collection
+      ),
+    [riskBoard.collection, riskBoard.fourthRows, riskBoard.juriRows, riskBoard.thirdRows]
+  );
+  const urgentResultRows = useMemo(
+    () => resultPressureRows.filter((row) => row.totalRisk > 0).slice(0, 6),
+    [resultPressureRows]
+  );
+  const topJuriRows = useMemo(
+    () => getTopRiskRows(riskBoard.juriRows, 8),
+    [riskBoard.juriRows]
+  );
 
   const payoutExposure = Number(
-    typeof riskBoard.payoutExposure === "number"
+    typeof riskBoard.payoutExposure === "number" && riskBoard.payoutExposure > 0
       ? riskBoard.payoutExposure
-      : highestRisk.third.payoutRisk +
-          highestRisk.fourth.payoutRisk +
-          highestRisk.juri.payoutRisk
+      : resultPressureRows[0]
+        ? resultPressureRows[0].totalRisk
+        : 0
   );
   const estimatedProfitLoss = Number(
     typeof riskBoard.adminNet === "number"
@@ -250,9 +339,23 @@ export default function AdminPanel({ session, onLogout }) {
     sellerState.winResults[buildResultKey(selectedDate, selectedDrawTime)] || "";
 
   useEffect(() => {
+    const localOverviewSignature = buildStateSignature(localDashboardSummary);
+
+    if (activeSection !== "Reports") {
+      if (adminSyncRef.current.overviewSignature !== localOverviewSignature) {
+        adminSyncRef.current.overviewSignature = localOverviewSignature;
+        setDashboardSummary(localDashboardSummary);
+      }
+      return undefined;
+    }
+
     let active = true;
 
-    const loadOverview = async () => {
+    const loadOverview = async (force = false) => {
+      if (!force && shouldPauseAdminRefresh()) {
+        return;
+      }
+
       try {
         const response = await fetchAdminOverviewApi();
 
@@ -260,22 +363,29 @@ export default function AdminPanel({ session, onLogout }) {
           return;
         }
 
-        setDashboardSummary(normalizeAdminOverview(response.overview));
+        const nextOverview = normalizeAdminOverview(response.overview);
+        const nextSignature = buildStateSignature(nextOverview);
+
+        if (adminSyncRef.current.overviewSignature !== nextSignature) {
+          adminSyncRef.current.overviewSignature = nextSignature;
+          setDashboardSummary(nextOverview);
+        }
       } catch {
-        if (active) {
-          setDashboardSummary(buildAdminDashboard(activeTickets, sellerState.winResults));
+        if (active && adminSyncRef.current.overviewSignature !== localOverviewSignature) {
+          adminSyncRef.current.overviewSignature = localOverviewSignature;
+          setDashboardSummary(localDashboardSummary);
         }
       }
     };
 
-    loadOverview();
-    const intervalId = window.setInterval(loadOverview, 4000);
+    loadOverview(true);
+    const intervalId = window.setInterval(loadOverview, 10000);
 
     return () => {
       active = false;
       window.clearInterval(intervalId);
     };
-  }, [activeTickets, sellerState.winResults]);
+  }, [activeSection, localDashboardSummary, shouldPauseAdminRefresh]);
 
   const selectedSeller = useMemo(
     () => sellers.find((seller) => seller.id === selectedSellerId) || sellers[0] || null,
@@ -481,7 +591,7 @@ export default function AdminPanel({ session, onLogout }) {
         drawTime: selectedDrawTime,
         winningNumber: sanitized,
       });
-      await syncAdminData();
+      await syncAdminData({ force: true });
       setWinningNumber(sanitized);
       window.alert("Result saved");
     } catch (error) {
@@ -534,6 +644,7 @@ export default function AdminPanel({ session, onLogout }) {
             active: true,
           });
 
+      adminSyncRef.current.sellersSignature = buildStateSignature(response.sellers || []);
       setSellers(response.sellers || []);
       if (editingSellerId) {
         setSelectedSellerId(editingSellerId);
@@ -578,6 +689,7 @@ export default function AdminPanel({ session, onLogout }) {
       const response = await updateSellerApi(sellerId, {
         active: !currentSeller.active,
       });
+      adminSyncRef.current.sellersSignature = buildStateSignature(response.sellers || []);
       setSellers(response.sellers || []);
     } catch (error) {
       window.alert(error.message || "Seller update failed");
@@ -769,6 +881,11 @@ export default function AdminPanel({ session, onLogout }) {
                 <MiniStatCard label="Sellers In Draw" value={selectedDrawSellerCount} />
               </div>
 
+              <ResultPressureBoard
+                rows={urgentResultRows}
+                collectionValue={riskBoard.collection}
+              />
+
               <div className="admin-highlight-grid">
                 <HighlightCard
                   title="Highest 3rd"
@@ -824,9 +941,21 @@ export default function AdminPanel({ session, onLogout }) {
                 </div>
               </div>
 
-              <RiskSection title="3rd House" rows={riskBoard.thirdRows} />
-              <RiskSection title="4th House" rows={riskBoard.fourthRows} />
-              <RiskSection title="Juri" rows={riskBoard.juriRows} dense />
+              <RiskSection
+                title="3rd House"
+                rows={riskBoard.thirdRows}
+                collectionValue={riskBoard.collection}
+              />
+              <RiskSection
+                title="4th House"
+                rows={riskBoard.fourthRows}
+                collectionValue={riskBoard.collection}
+              />
+              <JuriMiniBoard
+                rows={riskBoard.juriRows}
+                topRows={topJuriRows}
+                collectionValue={riskBoard.collection}
+              />
             </div>
           )}
 
@@ -1275,26 +1404,164 @@ export default function AdminPanel({ session, onLogout }) {
   );
 }
 
-function RiskSection({ title, rows, dense = false }) {
+function ResultPressureBoard({ rows, collectionValue }) {
+  const highestRow = rows[0] || createEmptyResultPressureRow(collectionValue);
+
+  return (
+    <div className="admin-risk-command-grid">
+      <div
+        className={`glass-panel admin-risk-command-card ${
+          highestRow.totalRisk ? `admin-highlight-${highestRow.tone}` : ""
+        }`}
+      >
+        <div className="panel-title-row">
+          <strong>Highest Result Effect</strong>
+          <span>{getResultBufferText(highestRow.totalRisk, collectionValue)}</span>
+        </div>
+
+        <div className="admin-risk-command-hero">
+          <strong>{highestRow.number}</strong>
+          <span>{formatCurrency(highestRow.totalRisk)}</span>
+        </div>
+
+        <p className="admin-risk-command-copy">
+          3rd {highestRow.firstDigit} {formatCompactCurrency(highestRow.thirdRisk)} | 4th{" "}
+          {highestRow.secondDigit} {formatCompactCurrency(highestRow.fourthRisk)} | Juri{" "}
+          {highestRow.number} {formatCompactCurrency(highestRow.juriRisk)}
+        </p>
+      </div>
+
+      <div className="glass-panel admin-risk-command-card">
+        <div className="panel-title-row">
+          <strong>Reduce Immediately</strong>
+          <span>
+            {rows.length ? `${rows.length} result number(s)` : "No active danger right now"}
+          </span>
+        </div>
+
+        <div className="admin-risk-action-list">
+          {rows.length ? (
+            rows.map((row, index) => (
+              <div
+                key={`result-pressure-${row.number}`}
+                className={`admin-risk-action admin-risk-${row.tone}`}
+              >
+                <div className="admin-risk-action-head">
+                  <strong>
+                    {index + 1}. {row.number}
+                  </strong>
+                  <span>{getRiskShareText(row.totalRisk, collectionValue)}</span>
+                </div>
+                <div className="admin-risk-action-meta">
+                  <span>
+                    3:{formatCompactCurrency(row.thirdRisk)} | 4:
+                    {formatCompactCurrency(row.fourthRisk)} | J:
+                    {formatCompactCurrency(row.juriRisk)}
+                  </span>
+                  <strong>{formatCompactCurrency(row.totalRisk)}</strong>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="admin-risk-empty">
+              No risky result number yet for this draw. The board will light up as tickets enter.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RiskSection({ title, rows, collectionValue = 0 }) {
+  const rankedRows = [...rows].sort(sortRiskRows);
+  const topRiskValue = rankedRows[0] ? rankedRows[0].payoutRisk : 0;
+
   return (
     <div className="glass-panel admin-risk-section">
       <div className="panel-title-row">
         <strong>{title}</strong>
-        <span>{rows.length} number(s)</span>
+        <span>Highest first for quick reduce action</span>
       </div>
 
-      <div className={`admin-risk-grid ${dense ? "dense-risk-grid" : ""}`}>
-        {rows.map((row) => (
-          <div
-            key={`${title}-${row.number}`}
-            className={`admin-risk-card admin-risk-${row.tone}`}
-          >
-            <strong>{row.number}</strong>
-            <span>Qty {row.totalQty}</span>
-            <span>{formatCurrency(row.totalAmount)}</span>
-            <span>Risk {formatCurrency(row.payoutRisk)}</span>
-          </div>
-        ))}
+      <div className="admin-risk-grid">
+        {rankedRows.map((row) => {
+          const tone = getRiskTone(row.payoutRisk, collectionValue);
+
+          return (
+            <div
+              key={`${title}-${row.number}`}
+              className={`admin-risk-card admin-risk-${tone}`}
+            >
+              <div className="admin-risk-card-top">
+                <strong>{row.number}</strong>
+                <span className={`admin-risk-chip admin-risk-chip-${tone}`}>
+                  {getRiskChipLabel(row, tone, topRiskValue)}
+                </span>
+              </div>
+
+              <div className="admin-risk-card-metrics">
+                <span>Qty {row.totalQty}</span>
+                <span>Sale {formatCompactCurrency(row.totalAmount)}</span>
+              </div>
+
+              <div className="admin-risk-card-footer">
+                <strong>{formatCurrency(row.payoutRisk)}</strong>
+                <span>{getRiskShareText(row.payoutRisk, collectionValue)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function JuriMiniBoard({ rows, topRows, collectionValue = 0 }) {
+  return (
+    <div className="glass-panel admin-risk-section">
+      <div className="panel-title-row">
+        <strong>Juri 00-99</strong>
+        <span>Mini map to see which juri number is getting hot</span>
+      </div>
+
+      {topRows.length > 0 && (
+        <div className="admin-juri-top-strip">
+          {topRows.map((row) => {
+            const tone = getRiskTone(row.payoutRisk, collectionValue);
+
+            return (
+              <div
+                key={`top-juri-${row.number}`}
+                className={`admin-juri-top-chip admin-risk-${tone}`}
+              >
+                <span>Juri {row.number}</span>
+                <strong>{formatCompactCurrency(row.payoutRisk)}</strong>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="admin-juri-mini-grid">
+        {rows.map((row) => {
+          const tone = getRiskTone(row.payoutRisk, collectionValue);
+
+          return (
+            <div
+              key={`juri-mini-${row.number}`}
+              className={`admin-juri-mini-box admin-risk-${tone} ${
+                row.payoutRisk > 0 ? "active" : ""
+              }`}
+            >
+              <strong>{row.number}</strong>
+              <div className="admin-juri-mini-meta">
+                <span>Q{row.totalQty}</span>
+                <small>{row.payoutRisk > 0 ? formatCompactCurrency(row.payoutRisk) : "Safe"}</small>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1391,6 +1658,14 @@ function normalizeAdminOverview(overview) {
     outstanding: Number(overview && overview.outstanding ? overview.outstanding : 0),
     profitLoss: Number(overview && overview.profitLoss ? overview.profitLoss : 0),
   };
+}
+
+function buildStateSignature(value) {
+  try {
+    return JSON.stringify(value || null);
+  } catch {
+    return "";
+  }
 }
 
 function emptySellerReport() {
@@ -1526,6 +1801,70 @@ function buildRiskRows(tickets, itemType, numbers, rate, payoutRate) {
   });
 }
 
+function buildResultPressureRows(thirdRows, fourthRows, juriRows, collectionValue) {
+  const thirdLookup = buildRiskLookup(thirdRows);
+  const fourthLookup = buildRiskLookup(fourthRows);
+  const juriLookup = buildRiskLookup(juriRows);
+
+  return createJuriList()
+    .map((number) => {
+      const firstDigit = number.charAt(0);
+      const secondDigit = number.charAt(1);
+      const thirdRow = thirdLookup[firstDigit] || normalizeRiskRow({ number: firstDigit });
+      const fourthRow = fourthLookup[secondDigit] || normalizeRiskRow({ number: secondDigit });
+      const juriRow = juriLookup[number] || normalizeRiskRow({ number });
+      const totalRisk = thirdRow.payoutRisk + fourthRow.payoutRisk + juriRow.payoutRisk;
+
+      return {
+        number,
+        firstDigit,
+        secondDigit,
+        thirdRisk: thirdRow.payoutRisk,
+        fourthRisk: fourthRow.payoutRisk,
+        juriRisk: juriRow.payoutRisk,
+        totalQty: thirdRow.totalQty + fourthRow.totalQty + juriRow.totalQty,
+        totalRisk,
+        tone: getRiskTone(totalRisk, collectionValue),
+      };
+    })
+    .sort(sortResultPressureRows);
+}
+
+function buildRiskLookup(rows) {
+  return rows.reduce((lookup, row) => {
+    lookup[String(row.number)] = normalizeRiskRow(row);
+    return lookup;
+  }, {});
+}
+
+function getTopRiskRows(rows, limit = 5) {
+  return [...rows].filter((row) => row.payoutRisk > 0).sort(sortRiskRows).slice(0, limit);
+}
+
+function sortRiskRows(left, right) {
+  if (right.payoutRisk !== left.payoutRisk) {
+    return right.payoutRisk - left.payoutRisk;
+  }
+
+  if (right.totalQty !== left.totalQty) {
+    return right.totalQty - left.totalQty;
+  }
+
+  return String(left.number).localeCompare(String(right.number));
+}
+
+function sortResultPressureRows(left, right) {
+  if (right.totalRisk !== left.totalRisk) {
+    return right.totalRisk - left.totalRisk;
+  }
+
+  if (right.juriRisk !== left.juriRisk) {
+    return right.juriRisk - left.juriRisk;
+  }
+
+  return left.number.localeCompare(right.number);
+}
+
 function buildAdminDashboard(tickets, winResults) {
   const payout = tickets.reduce((sum, ticket) => {
     const winNumber = winResults[buildResultKey(ticket.date, ticket.drawTime)] || "";
@@ -1621,6 +1960,68 @@ function getTicketPayoutForResult(ticket, winningNumber) {
 function getHighestRiskRow(rows) {
   const sorted = [...rows].sort((left, right) => right.payoutRisk - left.payoutRisk);
   return sorted[0] || { number: "--", payoutRisk: 0 };
+}
+
+function createEmptyResultPressureRow(collectionValue = 0) {
+  return {
+    number: "--",
+    firstDigit: "-",
+    secondDigit: "-",
+    thirdRisk: 0,
+    fourthRisk: 0,
+    juriRisk: 0,
+    totalQty: 0,
+    totalRisk: 0,
+    tone: getRiskTone(0, collectionValue),
+  };
+}
+
+function getRiskChipLabel(row, tone, topRiskValue) {
+  if (!row.payoutRisk) {
+    return "Safe";
+  }
+
+  if (row.payoutRisk === topRiskValue) {
+    return "Highest";
+  }
+
+  if (tone === "danger") {
+    return "Reduce";
+  }
+
+  if (tone === "warning") {
+    return "Watch";
+  }
+
+  return "Open";
+}
+
+function getRiskShareText(riskValue, collectionValue) {
+  if (!riskValue) {
+    return "No pressure";
+  }
+
+  if (!collectionValue) {
+    return "Waiting for collection";
+  }
+
+  return `${Math.round((riskValue / collectionValue) * 100)}% of collection`;
+}
+
+function getResultBufferText(riskValue, collectionValue) {
+  if (!riskValue) {
+    return "No active result danger";
+  }
+
+  if (!collectionValue) {
+    return "Collection not ready yet";
+  }
+
+  const balance = collectionValue - riskValue;
+
+  return balance >= 0
+    ? `${formatCompactCurrency(balance)} buffer left`
+    : `${formatCompactCurrency(Math.abs(balance))} over collection`;
 }
 
 function getTicketStatus(ticket) {
@@ -1747,6 +2148,24 @@ function formatCurrency(value) {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(value || 0);
+}
+
+function formatCompactCurrency(value) {
+  const amount = Number(value || 0);
+  const absoluteAmount = Math.abs(amount);
+  const globalIntl =
+    typeof globalThis !== "undefined" && globalThis.Intl ? globalThis.Intl : null;
+
+  if (!globalIntl) {
+    return `Rs ${absoluteAmount.toFixed(0)}`;
+  }
+
+  const compact = new globalIntl.NumberFormat("en-IN", {
+    notation: "compact",
+    maximumFractionDigits: absoluteAmount >= 1000 ? 1 : 0,
+  }).format(absoluteAmount);
+
+  return `${amount < 0 ? "-" : ""}₹${compact}`;
 }
 
 if (typeof window !== "undefined" && !window.localStorage.getItem(SELLER_LIST_KEY)) {

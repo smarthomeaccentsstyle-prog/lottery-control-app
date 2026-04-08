@@ -33,6 +33,21 @@ function createJsonResponse(payload, ok = true) {
   });
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+}
+
 function createSuccessFetchMock() {
   return jest.fn((url) => {
     const endpoint = String(url);
@@ -269,6 +284,89 @@ test("renders seller panel with seller session", async () => {
 
   expect(container.textContent).toContain("Seller Panel");
   expect(container.textContent).toContain("Create New Ticket");
+  expect(container.textContent).toContain("Scan Entry");
+  await unmountApp(root);
+});
+
+test("keeps saved admin session on restore screen instead of flashing login", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/admin");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "admin",
+      token: "admin-token",
+      username: "admin",
+    })
+  );
+
+  const bootstrapDeferred = createDeferred();
+  const sessionDeferred = createDeferred();
+
+  global.fetch = jest.fn((url) => {
+    const endpoint = String(url);
+
+    if (endpoint.includes("/bootstrap")) {
+      return bootstrapDeferred.promise;
+    }
+
+    if (endpoint.includes("/auth/session")) {
+      return sessionDeferred.promise;
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets: [] });
+    }
+
+    if (endpoint.includes("/results")) {
+      return createJsonResponse({ results: [] });
+    }
+
+    if (endpoint.includes("/sellers")) {
+      return createJsonResponse({ sellers: [PUBLIC_SELLER] });
+    }
+
+    if (endpoint.includes("/dashboard/risk")) {
+      return createJsonResponse({ riskBoard: {} });
+    }
+
+    if (endpoint.includes("/dashboard/overview")) {
+      return createJsonResponse({ overview: {} });
+    }
+
+    if (endpoint.includes("/reports/seller")) {
+      return createJsonResponse({ report: {} });
+    }
+
+    return createJsonResponse({});
+  });
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Restoring Session");
+  expect(container.textContent).not.toContain("Admin Login");
+
+  await act(async () => {
+    bootstrapDeferred.resolve(createJsonResponse({ sellers: [PUBLIC_SELLER] }));
+    await Promise.resolve();
+  });
+
+  expect(container.textContent).toContain("Restoring Session");
+
+  await act(async () => {
+    sessionDeferred.resolve(
+      createJsonResponse({
+        session: JSON.parse(localStorage.getItem(SESSION_KEY)),
+      })
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Risk Control");
+  expect(container.textContent).not.toContain("Admin Login");
   await unmountApp(root);
 });
 
