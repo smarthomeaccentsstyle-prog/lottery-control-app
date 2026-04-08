@@ -192,6 +192,14 @@ function getExpectedSeparator(sectionKey) {
   return SCAN_SECTION_META[sectionKey].expectedSeparator;
 }
 
+function getAcceptedSeparators(sectionKey) {
+  if (sectionKey === "juri") {
+    return ["-", ""];
+  }
+
+  return ["=", "-", ""];
+}
+
 function normalizeSeparatorText(value, sectionKey) {
   const expectedSeparator = getExpectedSeparator(sectionKey);
 
@@ -249,7 +257,7 @@ function parseCandidate(sectionKey, fragment) {
 }
 
 function validateScanRow(sectionKey, row, parseMeta) {
-  const expectedSeparator = getExpectedSeparator(sectionKey);
+  const acceptedSeparators = getAcceptedSeparators(sectionKey);
 
   if (!row.number || !row.quantity) {
     return {
@@ -258,10 +266,10 @@ function validateScanRow(sectionKey, row, parseMeta) {
     };
   }
 
-  if (parseMeta.separatorFound !== expectedSeparator) {
+  if (!acceptedSeparators.includes(parseMeta.separatorFound)) {
     return {
       ok: false,
-      message: `Use ${expectedSeparator} in ${SCAN_SECTION_META[sectionKey].label}`,
+      message: `Use ${getExpectedSeparator(sectionKey)} in ${SCAN_SECTION_META[sectionKey].label}`,
     };
   }
 
@@ -328,9 +336,11 @@ function buildReviewRow(sectionKey, fragment, confidence, rowIndex) {
     parseMeta
   );
   const lineConfidence = Number.isFinite(Number(confidence)) ? Number(confidence) : 0;
+  const separatorNeedsReview = parseMeta.separatorFound !== expectedSeparator;
   const shouldReview =
     !validation.ok ||
     lineConfidence < LOW_CONFIDENCE_THRESHOLD ||
+    separatorNeedsReview ||
     parseMeta.digitCorrected ||
     parseMeta.separatorCorrected ||
     parseMeta.usedFallback;
@@ -351,6 +361,8 @@ function buildReviewRow(sectionKey, fragment, confidence, rowIndex) {
         ? validation.message
         : lineConfidence < LOW_CONFIDENCE_THRESHOLD
           ? "Low OCR confidence"
+          : separatorNeedsReview
+            ? "Separator was normalized"
           : parseMeta.usedFallback
             ? "Separator was not clearly read"
             : parseMeta.digitCorrected || parseMeta.separatorCorrected
@@ -450,6 +462,24 @@ export function buildScanReviewFromScanPayload(scanPayload = {}) {
   }, {});
 
   return buildReviewStateFromSections(sectionLines, scanPayload.text, scanPayload.layout);
+}
+
+export function scoreScanPayload(scanPayload = {}) {
+  const reviewState = buildScanReviewFromScanPayload(scanPayload);
+  const rows = SCAN_SECTION_ORDER.flatMap((sectionKey) => reviewState.sections[sectionKey] || []);
+  const validCount = rows.filter((row) => row.isValid).length;
+  const safeCount = rows.filter((row) => row.isValid && row.tone !== "low").length;
+  const lowCount = rows.filter((row) => row.tone === "low").length;
+  const ignoredCount = Array.isArray(reviewState.ignoredLines) ? reviewState.ignoredLines.length : 0;
+
+  return {
+    reviewState,
+    score: validCount * 100 + safeCount * 20 - lowCount * 8 - ignoredCount * 10,
+    validCount,
+    safeCount,
+    lowCount,
+    ignoredCount,
+  };
 }
 
 export function buildScanReviewFromLines(sourceLines = [], ocrText = "") {

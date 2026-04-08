@@ -1,4 +1,7 @@
+import { scoreScanPayload } from "./scanEntryParser.js";
+
 const SECTION_SCAN_ORDER = ["third", "fourth", "juri"];
+const ROTATION_CANDIDATES = [0, 180, 90, 270];
 
 const SECTION_OCR_CONFIG = {
   third: {
@@ -29,6 +32,34 @@ function createCanvas(width, height) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
+  return canvas;
+}
+
+function rotateCanvas(sourceCanvas, degrees) {
+  const normalized = ((degrees % 360) + 360) % 360;
+
+  if (normalized === 0) {
+    return sourceCanvas;
+  }
+
+  const isQuarterTurn = normalized === 90 || normalized === 270;
+  const canvas = createCanvas(
+    isQuarterTurn ? sourceCanvas.height : sourceCanvas.width,
+    isQuarterTurn ? sourceCanvas.width : sourceCanvas.height
+  );
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return sourceCanvas;
+  }
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.rotate((normalized * Math.PI) / 180);
+  context.drawImage(sourceCanvas, -sourceCanvas.width / 2, -sourceCanvas.height / 2);
+  context.setTransform(1, 0, 0, 1, 0, 0);
+
   return canvas;
 }
 
@@ -481,6 +512,33 @@ async function recognizeSection(worker, sourceCanvas, sectionKey, rectangle) {
   };
 }
 
+async function recognizeScanCandidate(worker, sourceCanvas, rotation, onSectionStart) {
+  const rotatedCanvas = rotateCanvas(sourceCanvas, rotation);
+  const layout = detectTicketLayout(rotatedCanvas);
+  const sections = {};
+
+  for (let index = 0; index < SECTION_SCAN_ORDER.length; index += 1) {
+    const sectionKey = SECTION_SCAN_ORDER[index];
+    if (onSectionStart) {
+      onSectionStart(index, sectionKey);
+    }
+    sections[sectionKey] = await recognizeSection(worker, rotatedCanvas, sectionKey, layout[sectionKey]);
+  }
+
+  const text = SECTION_SCAN_ORDER.map((sectionKey) => sections[sectionKey].text || "").join("\n");
+  const payload = {
+    text,
+    layout,
+    sections,
+    rotation,
+  };
+
+  return {
+    payload,
+    scoreInfo: scoreScanPayload(payload),
+  };
+}
+
 export function stopMediaStream(stream) {
   if (!stream) {
     return;
@@ -591,9 +649,9 @@ export function enhanceCanvasForOcr(sourceCanvas) {
 
 export async function recognizeTicketImage(sourceCanvas, options = {}) {
   const { onProgress } = options;
-  const layout = detectTicketLayout(sourceCanvas);
   const createWorker = await getTesseractCreateWorker();
   let activeSectionIndex = 0;
+  let activeRotation = 0;
 
   emitProgress(onProgress, 0.08, "Scanning...");
 
@@ -609,30 +667,53 @@ export async function recognizeTicketImage(sourceCanvas, options = {}) {
       emitProgress(
         onProgress,
         scaledProgress,
-        `Scanning ${SECTION_OCR_CONFIG[SECTION_SCAN_ORDER[activeSectionIndex]].label}...`
+        activeRotation
+          ? `Trying rotated scan (${activeRotation}deg): ${SECTION_OCR_CONFIG[SECTION_SCAN_ORDER[activeSectionIndex]].label}...`
+          : `Scanning ${SECTION_OCR_CONFIG[SECTION_SCAN_ORDER[activeSectionIndex]].label}...`
       );
     },
   });
 
   try {
-    const sections = {};
+    let bestCandidate = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
 
-    for (let index = 0; index < SECTION_SCAN_ORDER.length; index += 1) {
-      const sectionKey = SECTION_SCAN_ORDER[index];
-      activeSectionIndex = index;
-      emitProgress(onProgress, 0.12 + index * 0.26, `Scanning ${SECTION_OCR_CONFIG[sectionKey].label}...`);
-      sections[sectionKey] = await recognizeSection(worker, sourceCanvas, sectionKey, layout[sectionKey]);
+    for (let rotationIndex = 0; rotationIndex < ROTATION_CANDIDATES.length; rotationIndex += 1) {
+      const rotation = ROTATION_CANDIDATES[rotationIndex];
+      activeRotation = rotation;
+
+      const candidate = await recognizeScanCandidate(worker, sourceCanvas, rotation, (sectionIndex, sectionKey) => {
+        activeSectionIndex = sectionIndex;
+        emitProgress(
+          onProgress,
+          Math.min(0.9, 0.12 + rotationIndex * 0.18 + sectionIndex * 0.05),
+          rotation
+            ? `Trying rotated scan (${rotation}deg): ${SECTION_OCR_CONFIG[sectionKey].label}...`
+            : `Scanning ${SECTION_OCR_CONFIG[sectionKey].label}...`
+        );
+      });
+
+      if (candidate.scoreInfo.score > bestScore) {
+        bestScore = candidate.scoreInfo.score;
+        bestCandidate = candidate;
+      }
+
+      if (candidate.scoreInfo.validCount >= 5 && candidate.scoreInfo.safeCount >= 2) {
+        break;
+      }
+
+      if (rotationIndex === 1 && bestCandidate && bestCandidate.scoreInfo.validCount > 0) {
+        break;
+      }
     }
 
-    const text = SECTION_SCAN_ORDER.map((sectionKey) => sections[sectionKey].text || "").join("\n");
+    if (!bestCandidate) {
+      throw new Error("OCR scan failed");
+    }
 
     emitProgress(onProgress, 1, "Scan complete");
 
-    return {
-      text,
-      layout,
-      sections,
-    };
+    return bestCandidate.payload;
   } catch (error) {
     throw new Error(error && error.message ? error.message : "OCR scan failed");
   } finally {

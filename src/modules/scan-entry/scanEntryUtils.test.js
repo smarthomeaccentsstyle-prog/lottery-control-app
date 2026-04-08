@@ -62,7 +62,10 @@ test("normalizes leading zero house numbers but keeps one-digit juri numbers inv
   const reviewState = buildScanReviewFromScanPayload({
     sections: {
       third: {
-        lines: [{ text: "02=5", confidence: 95 }],
+        lines: [
+          { text: "02=5", confidence: 95 },
+          { text: "7-9", confidence: 95 },
+        ],
       },
       fourth: {
         lines: [],
@@ -76,6 +79,9 @@ test("normalizes leading zero house numbers but keeps one-digit juri numbers inv
   expect(reviewState.sections.third[0].number).toBe("2");
   expect(reviewState.sections.third[0].isValid).toBe(true);
   expect(reviewState.sections.third[0].tone).toBe("high");
+  expect(reviewState.sections.third[1].normalizedText).toBe("7=9");
+  expect(reviewState.sections.third[1].isValid).toBe(true);
+  expect(reviewState.sections.third[1].tone).toBe("low");
   expect(reviewState.sections.juri[0].number).toBe("5");
   expect(reviewState.sections.juri[0].isValid).toBe(false);
   expect(reviewState.sections.juri[0].issue).toBe("Juri number must stay 2 digits");
