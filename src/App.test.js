@@ -170,6 +170,12 @@ function setTextareaValue(element, value) {
   element.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function setSelectValue(element, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  descriptor.set.call(element, value);
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 beforeEach(() => {
   localStorage.clear();
   setPathname("/");
@@ -386,12 +392,10 @@ test("shows seller self password change in account tab", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const accountButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Account"
-  );
+  const sectionSwitcher = container.querySelector('select[aria-label="Switch seller panel section"]');
 
   await act(async () => {
-    accountButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    setSelectValue(sectionSwitcher, "Account");
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
@@ -636,13 +640,10 @@ test("renders ticket store with saved ticket format", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-
-  const ticketStoreButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Ticket Store"
-  );
+  const sectionSwitcher = container.querySelector('select[aria-label="Switch seller panel section"]');
 
   act(() => {
-    ticketStoreButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    setSelectValue(sectionSwitcher, "Ticket Store");
   });
 
   expect(container.textContent).toContain("Ticket Store");
@@ -699,6 +700,15 @@ test("shows print option after saving a new ticket", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
+  const ticketDetailsButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Ticket Details"
+  );
+
+  await act(async () => {
+    ticketDetailsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
   const juriTextarea = container.querySelector('textarea[placeholder="45-5, 88-5, 04-10"]');
 
   await act(async () => {
@@ -731,6 +741,89 @@ test("shows print option after saving a new ticket", async () => {
   expect(mockPrintWindow.document.write).toHaveBeenCalled();
   expect(mockPrintWindow.focus).toHaveBeenCalled();
   expect(typeof mockPrintWindow.onload).toBe("function");
+
+  await unmountApp(root);
+});
+
+test("adds duplicate fast-entry values into the same house and juri rows", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const thirdDigitThree = container.querySelector('button[aria-label="third digit 3 qty 0"]');
+  const juriModeButton = container.querySelector('button[aria-label="Juri"]');
+  const keyOne = container.querySelector('button[aria-label="Keypad 1"]');
+  const keyTwo = container.querySelector('button[aria-label="Keypad 2"]');
+  const keyFive = container.querySelector('button[aria-label="Keypad 5"]');
+  const keyZero = container.querySelector('button[aria-label="Keypad 0"]');
+
+  await act(async () => {
+    thirdDigitThree.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  await act(async () => {
+    keyFive.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("1 row | Qty 5");
+
+  await act(async () => {
+    thirdDigitThree.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  await act(async () => {
+    keyTwo.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("1 row | Qty 7");
+
+  await act(async () => {
+    juriModeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const juriKeyOne = container.querySelector('button[aria-label="Keypad 1"]');
+  const juriKeyTwo = container.querySelector('button[aria-label="Keypad 2"]');
+  const juriKeyZero = container.querySelector('button[aria-label="Keypad 0"]');
+
+  await act(async () => {
+    juriKeyOne.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  await act(async () => {
+    juriKeyTwo.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  await act(async () => {
+    juriKeyOne.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  await act(async () => {
+    juriKeyZero.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("12-10");
+  expect(container.textContent).toContain("1 row | Qty 7");
+  expect(container.textContent).toContain("1 row | Qty 10");
 
   await unmountApp(root);
 });
@@ -971,12 +1064,10 @@ test("shows admin confirmed results as claim ready in the seller results tab", a
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const resultsButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Results"
-  );
+  const sectionSwitcher = container.querySelector('select[aria-label="Switch seller panel section"]');
 
   await act(async () => {
-    resultsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    setSelectValue(sectionSwitcher, "Results");
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
