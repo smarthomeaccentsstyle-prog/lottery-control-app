@@ -223,6 +223,15 @@ export function getScannedRowCount(scan = {}) {
   );
 }
 
+export function canAutoApplyScan(scan = {}) {
+  const normalizedScan = normalizeScanResponse(scan);
+
+  return (
+    getScannedRowCount(normalizedScan) > 0 &&
+    normalizedScan.unassignedHouse.length === 0
+  );
+}
+
 export function getFirstScannedMode(scan = {}) {
   const normalizedScan = normalizeScanResponse(scan);
 
@@ -262,6 +271,7 @@ export function readImageFileAsDataUrl(file) {
 function normalizeHouseSection(rows) {
   const merged = new Map();
   const order = [];
+  const seenExactRows = new Set();
 
   safeArray(rows).forEach((row) => {
     const digit = normalizeDigit(row && row.digit);
@@ -270,6 +280,14 @@ function normalizeHouseSection(rows) {
     if (!digit || qty <= 0) {
       return;
     }
+
+    const exactRowKey = `${digit}|${qty}`;
+
+    if (seenExactRows.has(exactRowKey)) {
+      return;
+    }
+
+    seenExactRows.add(exactRowKey);
 
     if (!merged.has(digit)) {
       merged.set(digit, qty);
@@ -289,6 +307,7 @@ function normalizeHouseSection(rows) {
 function normalizeUnassignedHouse(rows) {
   const merged = new Map();
   const order = [];
+  const seenExactRows = new Set();
 
   safeArray(rows).forEach((row) => {
     const digit = normalizeDigit(row && row.digit);
@@ -299,10 +318,19 @@ function normalizeUnassignedHouse(rows) {
       return;
     }
 
+    const normalizedReason = reason || "house row found but side/section unclear";
+    const exactRowKey = `${digit}|${qty}|${normalizedReason}`;
+
+    if (seenExactRows.has(exactRowKey)) {
+      return;
+    }
+
+    seenExactRows.add(exactRowKey);
+
     if (!merged.has(digit)) {
       merged.set(digit, {
         qty,
-        reason: reason || "house row found but side/section unclear",
+        reason: normalizedReason,
       });
       order.push(digit);
       return;
@@ -325,6 +353,7 @@ function normalizeUnassignedHouse(rows) {
 function normalizeJuriSection(rows) {
   const merged = new Map();
   const order = [];
+  const seenExactRows = new Set();
 
   safeArray(rows).forEach((row) => {
     const number = normalizeJuriNumber(row && row.number);
@@ -333,6 +362,14 @@ function normalizeJuriSection(rows) {
     if (!number || qty <= 0) {
       return;
     }
+
+    const exactRowKey = `${number}|${qty}`;
+
+    if (seenExactRows.has(exactRowKey)) {
+      return;
+    }
+
+    seenExactRows.add(exactRowKey);
 
     if (!merged.has(number)) {
       merged.set(number, qty);
@@ -350,6 +387,8 @@ function normalizeJuriSection(rows) {
 }
 
 function normalizeHouseCandidates(rows) {
+  const seen = new Set();
+
   return safeArray(rows)
     .map((row) => {
       const digit = normalizeDigit(row && row.digit);
@@ -368,10 +407,22 @@ function normalizeHouseCandidates(rows) {
         clusterLabel: String(row && row.clusterLabel ? row.clusterLabel : "").trim(),
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((row) => {
+      const dedupeKey = `${row.digit}|${row.qty}|${row.sideHint}|${row.clusterLabel}`;
+
+      if (seen.has(dedupeKey)) {
+        return false;
+      }
+
+      seen.add(dedupeKey);
+      return true;
+    });
 }
 
 function normalizeJuriCandidates(rows) {
+  const seen = new Set();
+
   return safeArray(rows)
     .map((row) => {
       const number = normalizeJuriNumber(row && row.number);
@@ -390,7 +441,17 @@ function normalizeJuriCandidates(rows) {
         sideHint: normalizeSideHint(row && row.sideHint),
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((row) => {
+      const dedupeKey = `${row.number}|${row.qty}|${row.clusterLabel}|${row.sideHint}`;
+
+      if (seen.has(dedupeKey)) {
+        return false;
+      }
+
+      seen.add(dedupeKey);
+      return true;
+    });
 }
 
 function deriveHouseSectionsFromCandidates(houseCandidates) {

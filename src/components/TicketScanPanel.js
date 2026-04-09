@@ -3,6 +3,7 @@ import React, { useRef } from "react";
 export default function TicketScanPanel({
   busy,
   fileName,
+  panelRef,
   onSelectFile,
 }) {
   const cameraInputRef = useRef(null);
@@ -19,7 +20,7 @@ export default function TicketScanPanel({
   };
 
   return (
-    <section className="seller-entry-panel seller-entry-scan-panel">
+    <section ref={panelRef} className="seller-entry-panel seller-entry-scan-panel">
       <div className="seller-entry-scan-head">
         <div>
           <span>Scan Entry</span>
@@ -58,6 +59,12 @@ export default function TicketScanPanel({
       <small className="seller-entry-scan-note">
         Works with clustered handwriting, rough paper, loose notes, and rotated phone images. Review is always required before apply.
       </small>
+
+      {busy ? (
+        <div className="seller-entry-scan-status">
+          Scanning selected image. Please wait and keep this page open.
+        </div>
+      ) : null}
 
       <input
         ref={cameraInputRef}

@@ -13,7 +13,9 @@ import {
 } from "../untils/fastEntry.js";
 import { scanTicketApi } from "../untils/api.js";
 import {
+  canAutoApplyScan,
   getFirstScannedMode,
+  getScannedRowCount,
   mapScanResultToDraft,
   normalizeScanResponse,
   readImageFileAsDataUrl,
@@ -215,6 +217,20 @@ function scrollFieldIntoView(node) {
       behavior: "smooth",
     });
   }, 120);
+}
+
+function scrollSectionIntoView(node) {
+  if (!node || typeof node.scrollIntoView !== "function") {
+    return;
+  }
+
+  window.setTimeout(() => {
+    node.scrollIntoView({
+      block: "start",
+      inline: "nearest",
+      behavior: "smooth",
+    });
+  }, 80);
 }
 
 function ModeTabs({ activeMode, onChange }) {
@@ -516,6 +532,9 @@ export default function SellerFastEntryBoard({
     })
   );
   const dockRef = useRef(null);
+  const scanPanelRef = useRef(null);
+  const scanReviewRef = useRef(null);
+  const previewPanelRef = useRef(null);
 
   const parsedJuriList = useMemo(() => parsedJuri || parseFastJuriText(juriText), [juriText, parsedJuri]);
   const modeRows = useMemo(
@@ -594,6 +613,18 @@ export default function SellerFastEntryBoard({
       observer.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (scanBusy) {
+      scrollSectionIntoView(scanPanelRef.current);
+    }
+  }, [scanBusy]);
+
+  useEffect(() => {
+    if (scanReview) {
+      scrollSectionIntoView(scanReviewRef.current);
+    }
+  }, [scanReview]);
 
   const registerInputRef = useCallback((mode, field) => {
     return (node) => {
@@ -889,6 +920,36 @@ export default function SellerFastEntryBoard({
     showNotice("Ticket cleared", "info");
   }, [onReset, showNotice]);
 
+  const applyScanToDraft = useCallback((editedScan, successMessage) => {
+    if (!editedScan) {
+      return;
+    }
+
+    const nextDraft = mapScanResultToDraft(editedScan);
+    const nextMode = getFirstScannedMode(editedScan);
+
+    commitDraft(nextDraft);
+    setModeInputs(buildInputState());
+    setEditState(null);
+    setScanReview(null);
+
+    if (nextMode !== activeEntryMode) {
+      onActiveEntryModeChange(nextMode);
+    }
+
+    showNotice(successMessage || "Scan rows loaded into the ticket. Review and save when ready.", "success");
+    scheduleFocus(nextMode, "number");
+    window.setTimeout(() => {
+      scrollSectionIntoView(previewPanelRef.current);
+    }, 140);
+  }, [
+    activeEntryMode,
+    commitDraft,
+    onActiveEntryModeChange,
+    scheduleFocus,
+    showNotice,
+  ]);
+
   const handleScanFileSelect = useCallback(
     async (file) => {
       if (!file) {
@@ -908,6 +969,7 @@ export default function SellerFastEntryBoard({
       try {
         setScanBusy(true);
         setScanFileName(file.name || "ticket-image");
+        scrollSectionIntoView(scanPanelRef.current);
         const imageDataUrl = await readImageFileAsDataUrl(file);
         const response = await scanTicketApi({
           imageDataUrl,
@@ -915,21 +977,34 @@ export default function SellerFastEntryBoard({
           mimeType: file.type || "image/jpeg",
         });
         const nextScanReview = normalizeScanResponse(response.scan);
+        const scannedRowCount = getScannedRowCount(nextScanReview);
+
+        if (canAutoApplyScan(nextScanReview)) {
+          setScanReview(null);
+          applyScanToDraft(
+            nextScanReview,
+            nextScanReview.notes.length > 0
+              ? "Scan loaded into the ticket. Check preview carefully, then save."
+              : "Scan loaded into the ticket. Preview is ready to save."
+          );
+          return;
+        }
 
         setScanReview(nextScanReview);
         showNotice(
-          nextScanReview.notes.length > 0
-            ? "Scan ready. Review highlighted notes before applying."
-            : "Scan ready. Review and apply to ticket.",
-          nextScanReview.notes.length > 0 ? "warning" : "success"
+          scannedRowCount === 0
+            ? "No clear rows were found. Try another photo."
+            : "Scan found rows, but some need review before loading the ticket.",
+          scannedRowCount === 0 ? "warning" : "info"
         );
       } catch (error) {
+        scrollSectionIntoView(scanPanelRef.current);
         showNotice(error.message || "Ticket scan failed.", "warning");
       } finally {
         setScanBusy(false);
       }
     },
-    [showNotice]
+    [applyScanToDraft, showNotice]
   );
 
   const handleCancelScanReview = useCallback(() => {
@@ -938,31 +1013,8 @@ export default function SellerFastEntryBoard({
   }, [showNotice]);
 
   const handleConfirmScanReview = useCallback((editedScan) => {
-    if (!editedScan) {
-      return;
-    }
-
-    const nextDraft = mapScanResultToDraft(editedScan);
-    const nextMode = getFirstScannedMode(editedScan);
-
-    commitDraft(nextDraft);
-    setModeInputs(buildInputState());
-    setEditState(null);
-    setScanReview(null);
-
-    if (nextMode !== activeEntryMode) {
-      onActiveEntryModeChange(nextMode);
-    }
-
-    showNotice("Scan rows loaded into the ticket. Review and save when ready.", "success");
-    scheduleFocus(nextMode, "number");
-  }, [
-    activeEntryMode,
-    commitDraft,
-    onActiveEntryModeChange,
-    scheduleFocus,
-    showNotice,
-  ]);
+    applyScanToDraft(editedScan, "Scan rows loaded into the ticket. Check preview and save when ready.");
+  }, [applyScanToDraft]);
 
   const handleSaveTicket = useCallback(async () => {
     if (!hasPreviewRows || savingTicket) {
@@ -1050,16 +1102,19 @@ export default function SellerFastEntryBoard({
       <TicketScanPanel
         busy={scanBusy}
         fileName={scanFileName}
+        panelRef={scanPanelRef}
         onSelectFile={handleScanFileSelect}
       />
 
       {scanReview ? (
-        <TicketScanReview
-          hasExistingRows={previewRows.length > 0}
-          result={scanReview}
-          onCancel={handleCancelScanReview}
-          onConfirm={handleConfirmScanReview}
-        />
+        <div ref={scanReviewRef}>
+          <TicketScanReview
+            hasExistingRows={previewRows.length > 0}
+            result={scanReview}
+            onCancel={handleCancelScanReview}
+            onConfirm={handleConfirmScanReview}
+          />
+        </div>
       ) : null}
 
       <div className="seller-entry-main">
@@ -1102,7 +1157,7 @@ export default function SellerFastEntryBoard({
           )}
         </section>
 
-        <aside className="seller-entry-panel seller-entry-preview-panel">
+        <aside ref={previewPanelRef} className="seller-entry-panel seller-entry-preview-panel">
           <div className="seller-entry-preview-head">
             <div>
               <span>Live Preview</span>
