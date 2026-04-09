@@ -1365,58 +1365,6 @@ textarea::placeholder {
   line-height: 1.5;
 }
 
-.scan-entry-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 16px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(13, 31, 53, 0.96), rgba(10, 17, 29, 0.98));
-  border: 1px solid rgba(49, 89, 170, 0.45);
-}
-
-.scan-entry-copy {
-  display: grid;
-  gap: 6px;
-}
-
-.scan-entry-copy strong {
-  color: #f8fbff;
-  font-size: 15px;
-}
-
-.scan-entry-copy span {
-  color: #a9bbdb;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.scan-entry-trigger {
-  min-width: 132px;
-}
-
-.scan-entry-inline-note {
-  margin-bottom: 16px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.scan-entry-inline-note.success {
-  color: #cbf7d8;
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(74, 222, 128, 0.35);
-}
-
-.scan-entry-inline-note.warning {
-  color: #fde68a;
-  background: rgba(120, 53, 15, 0.18);
-  border: 1px solid rgba(245, 158, 11, 0.35);
-}
-
 .bulk-textarea {
   margin-bottom: 10px;
   min-height: 132px;
@@ -2498,15 +2446,6 @@ textarea::placeholder {
   .hero-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-  }
-
-  .scan-entry-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .scan-entry-trigger {
     width: 100%;
   }
 

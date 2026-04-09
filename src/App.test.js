@@ -74,6 +74,19 @@ function createSuccessFetchMock() {
       return createJsonResponse({ tickets: [] });
     }
 
+    if (endpoint.includes("/scan-ticket")) {
+      return createJsonResponse({
+        scan: {
+          thirdHouse: [{ digit: "0", qty: 10 }],
+          fourthHouse: [{ digit: "7", qty: 15 }],
+          juri: [{ number: "08", qty: 19 }],
+          rawLines: ["0-10", "7-15", "08-19"],
+          notes: [],
+          confidence: "medium",
+        },
+      });
+    }
+
     if (endpoint.includes("/results")) {
       return createJsonResponse({ results: [] });
     }
@@ -159,15 +172,19 @@ function mockSystemDate(isoString) {
 }
 
 function setInputValue(element, value) {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
-  descriptor.set.call(element, value);
-  element.dispatchEvent(new Event("input", { bubbles: true }));
+  act(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    descriptor.set.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }
 
 function setSelectValue(element, value) {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
-  descriptor.set.call(element, value);
-  element.dispatchEvent(new Event("change", { bubbles: true }));
+  act(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+    descriptor.set.call(element, value);
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 }
 
 async function clickButton(button) {
@@ -187,6 +204,17 @@ function findButtonContainingText(container, text) {
   return Array.from(container.querySelectorAll("button")).find((button) =>
     button.textContent.includes(text)
   );
+}
+
+function getActiveEntryInputs(container) {
+  const inputs = Array.from(
+    container.querySelectorAll(".seller-entry-mode-panel .seller-entry-field input")
+  );
+
+  return {
+    numberInput: inputs[0] || null,
+    quantityInput: inputs[1] || null,
+  };
 }
 
 beforeEach(() => {
@@ -302,17 +330,19 @@ test("renders seller panel with seller session", async () => {
   const root = await renderApp(container);
 
   expect(container.textContent).toContain("Seller Panel");
-  expect(container.textContent).toContain("Create New Ticket");
-  expect(container.textContent).toContain("Manual Entry");
-  expect(container.textContent).toContain("Scanner Entry");
+  expect(container.textContent).toContain("Seller Ticket Entry");
   expect(container.textContent).toContain(
-    "Tap only. Number completes first and quantity follows automatically."
+    "Manual entry stays primary, with handwritten scan review as an extra way to fill ticket rows."
   );
-  expect(container.textContent).toContain("Save Entry");
+  expect(container.textContent).toContain("Save Ticket");
+  expect(container.textContent).toContain("Scan Entry");
+  expect(container.textContent).toContain("3rd House");
+  expect(container.textContent).toContain("4th House");
+  expect(container.textContent).toContain("Juri");
   await unmountApp(root);
 });
 
-test("switches new ticket view from manual entry to scanner entry", async () => {
+test("shows scan controls without removing manual entry tools", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.setItem(
     SESSION_KEY,
@@ -328,16 +358,11 @@ test("switches new ticket view from manual entry to scanner entry", async () => 
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const scannerEntryButton = findButtonContainingText(container, "Scanner Entry");
 
-  expect(scannerEntryButton).toBeTruthy();
-  await clickButton(scannerEntryButton);
-
-  expect(container.textContent).toContain("Auto-detect ticket rows, fix only the doubtful ones, then save directly.");
   expect(container.textContent).toContain("Camera Capture");
   expect(container.textContent).toContain("Gallery Upload");
-  expect(container.textContent).toContain("WhatsApp Image");
-  expect(container.textContent).toContain("Confidence Engine");
+  expect(container.textContent).toContain("Live Preview");
+  expect(container.textContent).toContain("Reset Mode");
   await unmountApp(root);
 });
 
@@ -470,7 +495,10 @@ test("opens new ticket with the next available draw by default", async () => {
 
   const root = await renderApp(container);
 
-  expect(container.textContent).toContain("Create New Ticket");
+  const bookingDateDisplay = container.querySelector(".fast-entry-booking-pill strong");
+
+  expect(container.textContent).toContain("Seller Ticket Entry");
+  expect(bookingDateDisplay.textContent).toBe("2026-04-06");
   expect(container.textContent).toContain("8:00 PM ticket entry is open for 2026-04-06 until 7:58 PM.");
   await unmountApp(root);
 });
@@ -543,8 +571,9 @@ test("moves expired draw booking to the next day", async () => {
 
   const root = await renderApp(container);
   const bookingDateInput = container.querySelector('input[type="date"]');
+  const bookingDateDisplay = container.querySelector(".fast-entry-booking-pill strong");
 
-  expect(container.textContent).toContain("Booking For:2026-04-07");
+  expect(bookingDateDisplay.textContent).toBe("2026-04-07");
   expect(bookingDateInput.value).toBe("2026-04-07");
   await unmountApp(root);
 });
@@ -580,8 +609,9 @@ test("moves 1 PM ticket to next day after 12:58 PM cutoff", async () => {
 
   const root = await renderApp(container);
   const bookingDateInput = container.querySelector('input[type="date"]');
+  const bookingDateDisplay = container.querySelector(".fast-entry-booking-pill strong");
 
-  expect(container.textContent).toContain("Booking For:2026-04-07");
+  expect(bookingDateDisplay.textContent).toBe("2026-04-07");
   expect(bookingDateInput.value).toBe("2026-04-07");
   await unmountApp(root);
 });
@@ -617,10 +647,11 @@ test("clamps seller booking date to only tomorrow when a later future date is st
 
   const root = await renderApp(container);
   const bookingDateInput = container.querySelector('input[type="date"]');
+  const bookingDateDisplay = container.querySelector(".fast-entry-booking-pill strong");
 
   expect(bookingDateInput.value).toBe("2026-04-07");
   expect(bookingDateInput.max).toBe("2026-04-07");
-  expect(container.textContent).toContain("Booking For:2026-04-07");
+  expect(bookingDateDisplay.textContent).toBe("2026-04-07");
   await unmountApp(root);
 });
 
@@ -700,21 +731,10 @@ test("renders ticket store with saved ticket format", async () => {
   await unmountApp(root);
 });
 
-test("shows print option after saving a new ticket", async () => {
+test("saves a new ticket from the manual seller entry screen", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   let tickets = [];
   const baseFetchMock = createSuccessFetchMock();
-  const mockPrintWindow = {
-    document: {
-      open: jest.fn(),
-      write: jest.fn(),
-      close: jest.fn(),
-    },
-    focus: jest.fn(),
-    print: jest.fn(),
-    onload: null,
-  };
-  window.open = jest.fn(() => mockPrintWindow);
 
   global.fetch = jest.fn((url, options = {}) => {
     const endpoint = String(url);
@@ -747,12 +767,11 @@ test("shows print option after saving a new ticket", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const digitOneButton = container.querySelector('button[aria-label="Digit 1"]');
-  const saveEntryButton = findButtonByText(container, "Save Entry");
+  const { numberInput, quantityInput } = getActiveEntryInputs(container);
 
-  await clickButton(digitOneButton);
-  await clickButton(digitOneButton);
-  await clickButton(saveEntryButton);
+  setInputValue(numberInput, "1");
+  setInputValue(quantityInput, "1");
+  await clickButton(findButtonByText(container, "Add Row"));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -767,22 +786,16 @@ test("shows print option after saving a new ticket", async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  expect(container.textContent).toContain("saved");
-  expect(container.textContent).toContain("Print Ticket");
-
-  const printTicketButton = findButtonByText(container, "Print Ticket");
-
-  await clickButton(printTicketButton);
-
-  expect(window.open).toHaveBeenCalled();
-  expect(mockPrintWindow.document.write).toHaveBeenCalled();
-  expect(mockPrintWindow.focus).toHaveBeenCalled();
-  expect(typeof mockPrintWindow.onload).toBe("function");
+  expect(container.textContent).toContain("Ticket saved. Ready for the next entry.");
+  expect(tickets).toHaveLength(1);
+  expect(tickets[0].items).toHaveLength(1);
+  expect(tickets[0].items[0].num).toBe("1");
+  expect(tickets[0].items[0].qty).toBe(1);
 
   await unmountApp(root);
 });
 
-test("adds duplicate fast-entry values into the same house and juri rows", async () => {
+test("adds duplicate manual-entry values into the same house and juri rows", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.setItem(
     SESSION_KEY,
@@ -798,35 +811,30 @@ test("adds duplicate fast-entry values into the same house and juri rows", async
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const digitOneButton = container.querySelector('button[aria-label="Digit 1"]');
-  const digitTwoButton = container.querySelector('button[aria-label="Digit 2"]');
-  const digitThreeButton = container.querySelector('button[aria-label="Digit 3"]');
-  const digitFiveButton = container.querySelector('button[aria-label="Digit 5"]');
-  const digitZeroButton = container.querySelector('button[aria-label="Digit 0"]');
-  const saveEntryButton = findButtonByText(container, "Save Entry");
-  const juriModeButton = container.querySelector('button[aria-label="Juri"]');
+  let entryInputs = getActiveEntryInputs(container);
 
-  await clickButton(digitThreeButton);
-  await clickButton(digitFiveButton);
-  await clickButton(saveEntryButton);
+  setInputValue(entryInputs.numberInput, "3");
+  setInputValue(entryInputs.quantityInput, "5");
+  await clickButton(findButtonByText(container, "Add Row"));
 
-  expect(container.textContent).toContain("3 × 5");
+  expect(container.textContent).toContain("3H 3 × 5");
 
-  await clickButton(digitThreeButton);
-  await clickButton(digitTwoButton);
-  await clickButton(saveEntryButton);
+  entryInputs = getActiveEntryInputs(container);
+  setInputValue(entryInputs.numberInput, "3");
+  setInputValue(entryInputs.quantityInput, "2");
+  await clickButton(findButtonByText(container, "Add Row"));
 
-  expect(container.textContent).toContain("3 × 7");
+  expect(container.textContent).toContain("3H 3 × 7");
 
-  await clickButton(juriModeButton);
-  await clickButton(digitOneButton);
-  await clickButton(digitTwoButton);
-  await clickButton(digitOneButton);
-  await clickButton(digitZeroButton);
-  await clickButton(saveEntryButton);
+  await clickButton(findButtonContainingText(container, "Juri"));
 
-  expect(container.textContent).toContain("12 × 10");
-  expect(container.textContent).toContain("Total₹177.00");
+  entryInputs = getActiveEntryInputs(container);
+  setInputValue(entryInputs.numberInput, "12");
+  setInputValue(entryInputs.quantityInput, "10");
+  await clickButton(findButtonByText(container, "Add Row"));
+
+  expect(container.textContent).toContain("J 12 × 10");
+  expect(container.textContent).toContain("₹177.00");
 
   await unmountApp(root);
 });
