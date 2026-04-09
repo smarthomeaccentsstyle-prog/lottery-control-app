@@ -61,6 +61,14 @@ export async function createTicketApi(payload) {
   return response;
 }
 
+export async function scanTicketApi(payload) {
+  const response = await apiRequest("/scan-ticket", {
+    method: "POST",
+    body: payload,
+  });
+  return response;
+}
+
 export async function updateTicketApi(id, payload) {
   const response = await apiRequest(`/tickets/${id}`, {
     method: "PATCH",

@@ -21,6 +21,10 @@ const {
   buildSellerReport,
 } = require("./lib/reports");
 const {
+  TicketScanValidationError,
+  scanTicketFromImage,
+} = require("./lib/ticketScan");
+const {
   getDb,
   getStorageInfo,
   updateDb,
@@ -372,6 +376,31 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         ok: true,
         tickets,
+      });
+    }
+
+    if (pathname === "/api/scan-ticket" && req.method === "POST") {
+      if (!ensureAuthenticated(res, authSession)) {
+        return;
+      }
+
+      const body = await readJsonBody(req);
+
+      if (!body || !body.imageDataUrl) {
+        return sendJson(res, 400, {
+          ok: false,
+          message: "imageDataUrl is required",
+        });
+      }
+
+      const scan = await scanTicketFromImage({
+        imageDataUrl: body.imageDataUrl,
+        fileName: body.fileName,
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        scan,
       });
     }
 
@@ -734,6 +763,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (error instanceof ValidationError) {
+      return sendJson(res, 400, {
+        ok: false,
+        message: error.message,
+      });
+    }
+
+    if (error instanceof TicketScanValidationError) {
       return sendJson(res, 400, {
         ok: false,
         message: error.message,

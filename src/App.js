@@ -23,7 +23,6 @@ import LoginScreen from "./components/LoginScreen.js";
 import AdminPanel from "./components/AdminPanel.js";
 import MasterPanel from "./components/MasterPanel.js";
 import SellerFastEntryBoard from "./components/SellerFastEntryBoard.js";
-import ScanEntryFlow from "./modules/scan-entry/ScanEntryFlow.js";
 import TicketFormat from "./components/TicketFormat.js";
 import {
   PANEL_SESSION_KEY,
@@ -190,7 +189,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [activeEntryMode, setActiveEntryMode] = useState(() =>
     normalizeFastMode(persisted.activeEntryMode)
   );
-  const [newTicketEntryMethod, setNewTicketEntryMethod] = useState("manual");
   const [lastSavedTicketId, setLastSavedTicketId] = useState(null);
   const [passwordForm, setPasswordForm] = useState(() => emptyPasswordChangeForm());
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -687,12 +685,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     [claimableTickets]
   );
 
-  useEffect(() => {
-    if (editingTicketId) {
-      setNewTicketEntryMethod("manual");
-    }
-  }, [editingTicketId]);
-
   const buildResolvedEntryDraft = useCallback((draftOverride = null) => {
     const latest = latestTicketSaveRef.current || {};
 
@@ -705,29 +697,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         })
       : latest.currentEntryDraft || currentEntryDraft;
   }, [currentEntryDraft, sellerCommissionSettings]);
-
-  const applyEntryDraftToForm = useCallback(
-    (draftOverride) => {
-      const resolvedDraft = buildResolvedEntryDraft(draftOverride);
-      const preferredMode = resolvedDraft.third.some(Boolean)
-        ? "third"
-        : resolvedDraft.fourth.some(Boolean)
-          ? "fourth"
-          : resolvedDraft.juriText
-            ? "juri"
-            : "third";
-
-      setThird(resolvedDraft.third);
-      setFourth(resolvedDraft.fourth);
-      setJuriText(resolvedDraft.juriText);
-      setActiveEntryMode(preferredMode);
-      setTicketActionNotice(null);
-      setLastSavedTicketId(null);
-      setEntryUiToken((current) => current + 1);
-      return resolvedDraft;
-    },
-    [buildResolvedEntryDraft]
-  );
 
   const sellerPriorityActions = useMemo(
     () => [
@@ -905,20 +874,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       wasEditing,
     };
   }, [buildResolvedEntryDraft, clearForm, syncSellerData]);
-
-  const confirmScannerTicket = useCallback(
-    async (draftOverride) => {
-      applyEntryDraftToForm(draftOverride);
-      const result = await createTicket(draftOverride);
-
-      if (!result || !result.ok) {
-        throw new Error((result && result.message) || "Ticket save failed");
-      }
-
-      return result;
-    },
-    [applyEntryDraftToForm, createTicket]
-  );
 
   const claimTicket = async (ticketId, options = {}) => {
     const { silent = false } = options;
@@ -1190,8 +1145,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     };
   };
   const isFocusedEntryView = activeTab === "New Ticket";
-  const canUseScannerEntry = !editingTicketId;
-
   return (
     <div className="app seller-app">
       <div className="container">
@@ -1199,7 +1152,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
           <div className="glass-card seller-speed-header">
             <div className="seller-speed-copy">
               <h1>Seller Panel</h1>
-              <p>Choose manual keypad entry or AI scanner entry for the next ticket.</p>
+              <p>Fast mobile ticket entry with manual typing, scan review, live totals, and the same stable save flow.</p>
             </div>
             <div className="seller-speed-actions">
               <div className="seller-speed-switcher">
@@ -1435,135 +1388,59 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         {activeTab === "New Ticket" && (
           <>
             <div className="glass-card fast-entry-card">
-              <div className="new-ticket-method-shell">
-                <div className="section-header">
-                  <h2>{editingTicketId ? `Edit Ticket #${editingTicketId}` : "New Ticket Options"}</h2>
-                  <span>
-                    Pick the fastest path for this ticket. Manual keeps the current keypad flow and scanner opens the AI review page.
-                  </span>
-                </div>
-
-                <div className="new-ticket-method-grid" aria-label="New ticket entry method">
-                  <button
-                    type="button"
-                    className={`new-ticket-method-card ${newTicketEntryMethod === "manual" ? "active" : ""}`}
-                    onClick={() => setNewTicketEntryMethod("manual")}
-                  >
-                    <span>Manual Entry</span>
-                    <strong>Fast keypad flow</strong>
-                    <small>Use the existing tap-only number and quantity board.</small>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`new-ticket-method-card scanner ${newTicketEntryMethod === "scanner" ? "active" : ""}`}
-                    onClick={() => {
-                      if (canUseScannerEntry) {
-                        setNewTicketEntryMethod("scanner");
-                      }
-                    }}
-                    disabled={!canUseScannerEntry}
-                  >
-                    <span>Scanner Entry</span>
-                    <strong>AI scan + fix</strong>
-                    <small>
-                      {canUseScannerEntry
-                        ? "Capture or upload a ticket and correct only flagged rows."
-                        : "Scanner stays off while editing an existing saved ticket."}
-                    </small>
-                  </button>
-                </div>
-
-                {!canUseScannerEntry ? (
-                  <div className="new-ticket-method-note">
-                    Existing ticket edits stay in manual mode so saved rows cannot be replaced by mistake.
-                  </div>
-                ) : null}
-              </div>
-
-              {newTicketEntryMethod === "manual" ? (
-                <SellerFastEntryBoard
-                  activeEntryMode={activeEntryMode}
-                  bookingDateAdjusted={bookingDateAdjusted}
-                  currentDue={currentDue}
-                  customerName={customerName}
-                  customerPhone={customerPhone}
-                  date={date}
-                  drawOptions={drawOptions}
-                  drawTime={drawTime}
-                  editingTicketId={editingTicketId}
-                  effectivePaidAmount={effectivePaidAmount}
-                  effectiveTicketDate={effectiveTicketDate}
-                  entryUiToken={entryUiToken}
-                  formatCurrency={formatCurrency}
-                  formatDrawTime={formatDrawTime}
-                  formatEntryCutoffTime={formatEntryCutoffTime}
-                  fourth={fourth}
-                  juriText={juriText}
-                  lastSavedTicket={lastSavedTicket}
-                  lastSavedTicketId={lastSavedTicketId}
-                  maxBookingDate={getLatestAllowedBookingDate()}
-                  onActiveEntryModeChange={setActiveEntryMode}
-                  onCustomerNameChange={setCustomerName}
-                  onCustomerPhoneChange={setCustomerPhone}
-                  onDateChange={(nextDate) =>
-                    setDate(getNextValidBookingDate(nextDate, drawTime))
-                  }
-                  onDismissSavedTicket={() => setLastSavedTicketId(null)}
-                  onDrawTimeChange={(nextDrawTime) => {
-                    setDrawTime(nextDrawTime);
-                    setDate((current) => getNextValidBookingDate(current, nextDrawTime));
-                  }}
-                  onFourthChange={setFourth}
-                  onJuriTextChange={setJuriText}
-                  onPaidAmountChange={(nextValue) =>
-                    setPaidAmount(nextValue.replace(/[^\d]/g, ""))
-                  }
-                  onPaymentModeChange={setPaymentMode}
-                  onPrintDraft={printDraftTicket}
-                  onPrintSavedTicket={() => printTicket(lastSavedTicketId)}
-                  onReset={clearForm}
-                  onSave={createTicket}
-                  onThirdChange={setThird}
-                  paidAmount={paidAmount}
-                  parsedJuri={parsedJuri}
-                  paymentMode={paymentMode}
-                  previewItems={previewItems}
-                  previewLayout={draftTicketLayout}
-                  previewSummary={previewSummary}
-                  third={third}
-                  ticketActionNotice={ticketActionNotice}
-                  todayString={todayString}
-                />
-              ) : (
-                <ScanEntryFlow
-                  bookingDateAdjusted={bookingDateAdjusted}
-                  bookingDate={effectiveTicketDate}
-                  date={date}
-                  drawLabel={formatDrawTime(drawTime)}
-                  drawOptions={drawOptions}
-                  drawTime={drawTime}
-                  formatCurrency={formatCurrency}
-                  formatEntryCutoffTime={formatEntryCutoffTime}
-                  juriRate={JURI_RATE}
-                  lastSavedTicket={lastSavedTicket}
-                  lastSavedTicketId={lastSavedTicketId}
-                  maxBookingDate={getLatestAllowedBookingDate()}
-                  onConfirmAndSave={confirmScannerTicket}
-                  onDateChange={(nextDate) =>
-                    setDate(getNextValidBookingDate(nextDate, drawTime))
-                  }
-                  onDismissSavedTicket={() => setLastSavedTicketId(null)}
-                  onDrawTimeChange={(nextDrawTime) => {
-                    setDrawTime(nextDrawTime);
-                    setDate((current) => getNextValidBookingDate(current, nextDrawTime));
-                  }}
-                  onPrintSavedTicket={() => printTicket(lastSavedTicketId)}
-                  singleRate={SINGLE_RATE}
-                  ticketActionNotice={ticketActionNotice}
-                  todayString={todayString}
-                />
-              )}
+              <SellerFastEntryBoard
+                activeEntryMode={activeEntryMode}
+                bookingDateAdjusted={bookingDateAdjusted}
+                currentDue={currentDue}
+                customerName={customerName}
+                customerPhone={customerPhone}
+                date={date}
+                drawOptions={drawOptions}
+                drawTime={drawTime}
+                editingTicketId={editingTicketId}
+                effectivePaidAmount={effectivePaidAmount}
+                effectiveTicketDate={effectiveTicketDate}
+                entryUiToken={entryUiToken}
+                formatCurrency={formatCurrency}
+                formatDrawTime={formatDrawTime}
+                formatEntryCutoffTime={formatEntryCutoffTime}
+                fourth={fourth}
+                juriText={juriText}
+                lastSavedTicket={lastSavedTicket}
+                lastSavedTicketId={lastSavedTicketId}
+                maxBookingDate={getLatestAllowedBookingDate()}
+                onActiveEntryModeChange={setActiveEntryMode}
+                onCustomerNameChange={setCustomerName}
+                onCustomerPhoneChange={setCustomerPhone}
+                onDateChange={(nextDate) =>
+                  setDate(getNextValidBookingDate(nextDate, drawTime))
+                }
+                onDismissSavedTicket={() => setLastSavedTicketId(null)}
+                onDrawTimeChange={(nextDrawTime) => {
+                  setDrawTime(nextDrawTime);
+                  setDate((current) => getNextValidBookingDate(current, nextDrawTime));
+                }}
+                onFourthChange={setFourth}
+                onJuriTextChange={setJuriText}
+                onPaidAmountChange={(nextValue) =>
+                  setPaidAmount(nextValue.replace(/[^\d]/g, ""))
+                }
+                onPaymentModeChange={setPaymentMode}
+                onPrintDraft={printDraftTicket}
+                onPrintSavedTicket={() => printTicket(lastSavedTicketId)}
+                onReset={clearForm}
+                onSave={createTicket}
+                onThirdChange={setThird}
+                paidAmount={paidAmount}
+                parsedJuri={parsedJuri}
+                paymentMode={paymentMode}
+                previewItems={previewItems}
+                previewLayout={draftTicketLayout}
+                previewSummary={previewSummary}
+                third={third}
+                ticketActionNotice={ticketActionNotice}
+                todayString={todayString}
+              />
             </div>
           </>
         )}
