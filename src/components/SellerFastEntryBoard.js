@@ -4,13 +4,13 @@ import { createPortal } from "react-dom";
 import {
   getJuriQuantity,
   parseFastJuriText,
+  sanitizeFastDigits,
   sanitizeFastQuantity,
   upsertJuriText,
 } from "../untils/fastEntry.js";
 import TicketFormat from "./TicketFormat.js";
 
 const BLOCKED_QUANTITY_KEYS = new Set(["e", "E", "+", "-"]);
-const JURI_GRID_VALUES = Array.from({ length: 100 }, (_, index) => String(index).padStart(2, "0"));
 
 function sumValues(values) {
   return (Array.isArray(values) ? values : []).reduce((sum, value) => sum + (Number(value) || 0), 0);
@@ -47,6 +47,7 @@ function buildEmptyModalState() {
     typedQty: "",
     baseQty: 0,
     clearOnSave: false,
+    editableNumber: false,
   };
 }
 
@@ -69,6 +70,22 @@ function formatEntryNumber(mode, number) {
 function formatPreviewValue(mode, number, qty) {
   const normalizedNumber = formatEntryNumber(mode, number);
   return mode === "juri" ? `[${normalizedNumber}-${qty}]` : `[${normalizedNumber}=${qty}]`;
+}
+
+function formatModalNumber(mode, number) {
+  if (!number && mode === "juri") {
+    return "";
+  }
+
+  return formatEntryNumber(mode, number);
+}
+
+function formatModalPreviewValue(mode, number, qty) {
+  if (!number && mode === "juri") {
+    return `[---${qty}]`;
+  }
+
+  return formatPreviewValue(mode, number, qty);
 }
 
 export default function SellerFastEntryBoard({
@@ -128,14 +145,6 @@ export default function SellerFastEntryBoard({
   const fourthQty = useMemo(() => sumValues(fourth), [fourth]);
   const juriQty = useMemo(
     () => parsedJuriList.entries.reduce((sum, item) => sum + Number(item.qty || 0), 0),
-    [parsedJuriList.entries]
-  );
-  const juriLookup = useMemo(
-    () =>
-      parsedJuriList.entries.reduce((lookup, item) => {
-        lookup[item.num] = Number(item.qty || 0);
-        return lookup;
-      }, {}),
     [parsedJuriList.entries]
   );
 
@@ -214,12 +223,15 @@ export default function SellerFastEntryBoard({
     setEntryModal(buildEmptyModalState());
   };
 
-  const openEntryModal = (mode, number) => {
-    const normalizedNumber = formatEntryNumber(mode, number);
+  const openEntryModal = (mode, number = "", options = {}) => {
+    const normalizedNumber =
+      mode === "juri" ? sanitizeFastDigits(number, 2) : formatEntryNumber(mode, number);
     const baseQty =
-      mode === "juri"
+      mode === "juri" && normalizedNumber
         ? getJuriQuantity(juriText, normalizedNumber)
-        : Number((mode === "fourth" ? fourth : third)[Number(normalizedNumber)] || 0);
+        : mode === "juri"
+          ? 0
+          : Number((mode === "fourth" ? fourth : third)[Number(normalizedNumber)] || 0);
 
     onActiveEntryModeChange(mode);
     setEntryModal({
@@ -229,6 +241,7 @@ export default function SellerFastEntryBoard({
       typedQty: "",
       baseQty,
       clearOnSave: false,
+      editableNumber: Boolean(options.editableNumber),
     });
   };
 
@@ -247,7 +260,13 @@ export default function SellerFastEntryBoard({
     const nextQty = entryModal.clearOnSave ? 0 : entryModal.baseQty + typedAmount;
 
     if (entryModal.mode === "juri") {
-      onJuriTextChange((current) => upsertJuriText(current, entryModal.number, nextQty));
+      const nextNumber = sanitizeFastDigits(entryModal.number, 2);
+
+      if (!nextNumber) {
+        return;
+      }
+
+      onJuriTextChange((current) => upsertJuriText(current, nextNumber, nextQty));
     } else {
       updateSingleQuantity(entryModal.mode, Number(entryModal.number), nextQty);
     }
@@ -275,6 +294,14 @@ export default function SellerFastEntryBoard({
     }));
   };
 
+  const handleModalNumberChange = (value) => {
+    setEntryModal((current) => ({
+      ...current,
+      number: sanitizeFastDigits(value, current.mode === "juri" ? 2 : 1),
+      clearOnSave: false,
+    }));
+  };
+
   const clearModalQuantity = () => {
     setEntryModal((current) => ({
       ...current,
@@ -283,10 +310,18 @@ export default function SellerFastEntryBoard({
     }));
   };
 
+  const addModalQuantity = (amount) => {
+    setEntryModal((current) => ({
+      ...current,
+      typedQty: sanitizeFastQuantity(String((Number(current.typedQty || 0) || 0) + amount), 5),
+      clearOnSave: false,
+    }));
+  };
+
   const modalPreviewQty = entryModal.clearOnSave
     ? 0
     : entryModal.baseQty + (Number(entryModal.typedQty || 0) || 0);
-  const modalPreviewText = formatPreviewValue(entryModal.mode, entryModal.number, modalPreviewQty);
+  const modalPreviewText = formatModalPreviewValue(entryModal.mode, entryModal.number, modalPreviewQty);
   const modalHelperText = entryModal.clearOnSave
     ? entryModal.baseQty
       ? `Current qty ${entryModal.baseQty} will be cleared.`
@@ -303,7 +338,13 @@ export default function SellerFastEntryBoard({
           <div className="fast-qty-modal-overlay" onClick={closeEntryModal}>
             <div className="fast-qty-modal" onClick={(event) => event.stopPropagation()}>
               <div className="fast-qty-modal-head">
-                <span>{getModeLabel(entryModal.mode)}</span>
+                <div>
+                  <span>{getModeLabel(entryModal.mode)}</span>
+                  <small>Number stays visible and quantity is auto-focused for fast correction.</small>
+                </div>
+                <button type="button" className="outline-btn" onClick={closeEntryModal}>
+                  Close
+                </button>
               </div>
 
               <div className="fast-qty-modal-preview">
@@ -321,7 +362,14 @@ export default function SellerFastEntryBoard({
               >
                 <label className="fast-qty-field">
                   <span>Number</span>
-                  <input type="text" value={formatEntryNumber(entryModal.mode, entryModal.number)} readOnly />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={entryModal.mode === "juri" ? 2 : 1}
+                    value={formatModalNumber(entryModal.mode, entryModal.number)}
+                    readOnly={!entryModal.editableNumber}
+                    onChange={(event) => handleModalNumberChange(event.target.value)}
+                  />
                 </label>
 
                 <label className="fast-qty-field fast-qty-field-large">
@@ -338,6 +386,12 @@ export default function SellerFastEntryBoard({
                     onKeyDown={handleQuantityKeyDown}
                   />
                 </label>
+
+                <div className="fast-qty-modal-shortcuts">
+                  <button type="button" className="outline-btn" onClick={() => addModalQuantity(10)}>
+                    +10
+                  </button>
+                </div>
 
                 <div className="fast-qty-modal-actions">
                   <button type="button" className="outline-btn" onClick={clearModalQuantity}>
@@ -504,7 +558,7 @@ export default function SellerFastEntryBoard({
               <div className="fast-entry-panel-head">
                 <div>
                   <strong>JURI PAGE</strong>
-                  <span>Tap any pair, type quantity, then save that row.</span>
+                  <span>Tap a saved row or add a new juri row in popup.</span>
                 </div>
                 <small>Rows {parsedJuriList.entries.length}</small>
               </div>
@@ -519,25 +573,36 @@ export default function SellerFastEntryBoard({
                 </small>
               </div>
 
-              <div className="fast-juri-grid">
-                {JURI_GRID_VALUES.map((number) => {
-                  const qty = juriLookup[number] || 0;
-                  const isActive =
-                    entryModal.isOpen && entryModal.mode === "juri" && entryModal.number === number;
+              <div className="fast-entry-juri-actions">
+                <button
+                  type="button"
+                  onClick={() => openEntryModal("juri", "", { editableNumber: true })}
+                >
+                  Add Juri Row
+                </button>
+                <small>00 to 99 box removed. Enter the juri number inside the popup.</small>
+              </div>
 
-                  return (
+              <div className="fast-entry-chip-grid fast-entry-juri-list">
+                {parsedJuriList.entries.length === 0 ? (
+                  <div className="fast-entry-empty">No juri rows yet.</div>
+                ) : (
+                  parsedJuriList.entries.map((entry) => (
                     <button
-                      key={number}
+                      key={`juri-row-${entry.num}`}
                       type="button"
-                      aria-label={`juri number ${number} qty ${qty}`}
-                      className={`fast-juri-cell ${qty > 0 ? "filled" : ""} ${isActive ? "active" : ""}`}
-                      onClick={() => openEntryModal("juri", number)}
+                      aria-label={`juri number ${entry.num} qty ${entry.qty}`}
+                      className={`fast-entry-chip ${
+                        entryModal.isOpen && entryModal.mode === "juri" && entryModal.number === entry.num
+                          ? "active"
+                          : ""
+                      }`}
+                      onClick={() => openEntryModal("juri", entry.num)}
                     >
-                      <span>{number}</span>
-                      <strong>{qty || 0}</strong>
+                      {entry.num}-{entry.qty}
                     </button>
-                  );
-                })}
+                  ))
+                )}
               </div>
 
               {parsedJuriList.invalid.length > 0 ? (
