@@ -1,129 +1,129 @@
 import React from "react";
 
-import ScanEntryJuriChip from "./ScanEntryJuriChip.js";
-import { formatRowValue, getSectionMeta, getSectionOrder } from "./scanEntryUtils.js";
+import { getSectionMeta, getSectionOrder } from "./scanEntryUtils.js";
+
+function formatReviewNumber(sectionKey, number) {
+  const value = String(number || "");
+
+  if (!value) {
+    return sectionKey === "juri" ? "__" : "_";
+  }
+
+  if (sectionKey === "juri") {
+    return value.length === 1 ? `${value}_` : value.padStart(2, "0");
+  }
+
+  return value;
+}
+
+function formatReviewValue(sectionKey, number, quantity) {
+  return `${formatReviewNumber(sectionKey, number)} × ${quantity || "0"}`;
+}
 
 export default function ScanEntryReview({
-  reviewState,
+  sectionItems,
   stats,
-  hasBlockingIssues,
-  hasSafeRows,
-  onEdit,
-  onFixFirstIssue,
-  onConfirmAll,
-  onConfirmSafe,
+  selectedItemId,
+  formatCurrency,
+  saving,
+  totalAmount,
+  onConfirmAndSave,
   onRetake,
+  onSelectItem,
 }) {
+  const hasBlockingIssues = stats.issueCount > 0;
+  const hasRows = stats.totalRows > 0;
+
   return (
-    <>
+    <div className="scan-review-shell">
       <div className="scan-review-summary">
         <div className="scan-summary-card">
-          <span>Detected Rows</span>
+          <span>Detected</span>
           <strong>{stats.totalRows}</strong>
         </div>
         <div className="scan-summary-card safe">
-          <span>Safe Rows</span>
+          <span>Auto Ready</span>
           <strong>{stats.safeCount}</strong>
         </div>
         <div className="scan-summary-card warning">
-          <span>Need Review</span>
+          <span>Need Fix</span>
           <strong>{stats.issueCount}</strong>
+        </div>
+        <div className="scan-summary-card total">
+          <span>Total</span>
+          <strong>{formatCurrency(totalAmount)}</strong>
         </div>
       </div>
 
       {stats.ignoredCount > 0 ? (
         <div className="scan-feedback warning">
-          {stats.ignoredCount} OCR line(s) were unclear. Fix the warning rows or confirm only the safe entries.
+          {stats.ignoredCount} unclear OCR line(s) still need a manual fix before save.
         </div>
       ) : null}
 
       <div className="scan-review-sections">
         {getSectionOrder().map((sectionKey) => (
-          <ScanReviewSection
-            key={sectionKey}
-            sectionKey={sectionKey}
-            rows={reviewState.sections[sectionKey] || []}
-            onEdit={onEdit}
-          />
+          <section key={sectionKey} className="scan-review-section">
+            <div className="scan-section-head">
+              <div>
+                <strong>{getSectionMeta(sectionKey).label}</strong>
+                <span>{(sectionItems[sectionKey] || []).length} row(s)</span>
+              </div>
+              <small>Tap any row to correct it.</small>
+            </div>
+
+            {(sectionItems[sectionKey] || []).length === 0 ? (
+              <div className="scan-empty-state">No rows detected.</div>
+            ) : (
+              <div className="scan-review-row-list">
+                {(sectionItems[sectionKey] || []).map((item) => {
+                  const isFlagged = item.sourceKind === "ignored" || item.tone === "low" || !item.isValid;
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`scan-review-row ${isFlagged ? "flagged" : "safe"} ${
+                        selectedItemId === item.id ? "active" : ""
+                      }`}
+                      onClick={() => onSelectItem(item)}
+                    >
+                      <div className="scan-review-row-main">
+                        <span className="scan-review-value">
+                          {formatReviewValue(sectionKey, item.number, item.quantity)}
+                        </span>
+                        {isFlagged ? (
+                          <span className="scan-review-status warning">Review</span>
+                        ) : (
+                          <span className="scan-review-status safe">Ready</span>
+                        )}
+                      </div>
+
+                      {item.issue || item.originalPreview ? (
+                        <small>{item.issue || item.originalPreview}</small>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         ))}
       </div>
 
       <div className="scan-review-actions">
-        {!hasBlockingIssues ? (
-          <button type="button" className="scan-confirm-btn" onClick={onConfirmAll}>
-            Confirm Scan
-          </button>
-        ) : (
-          <>
-            <button type="button" onClick={onFixFirstIssue}>
-              Fix Now
-            </button>
-            <button type="button" className="outline-btn" onClick={onConfirmSafe} disabled={!hasSafeRows}>
-              Confirm Safe Entries
-            </button>
-          </>
-        )}
-
-        <button type="button" className="outline-btn" onClick={onRetake}>
-          Retake
+        <button type="button" className="outline-btn" onClick={onRetake} disabled={saving}>
+          Retake Scan
+        </button>
+        <button
+          type="button"
+          className="scan-confirm-btn"
+          onClick={onConfirmAndSave}
+          disabled={!hasRows || hasBlockingIssues || saving}
+        >
+          {saving ? "Saving..." : "Confirm & Save"}
         </button>
       </div>
-    </>
-  );
-}
-
-function ScanReviewSection({ sectionKey, rows, onEdit }) {
-  const sectionMeta = getSectionMeta(sectionKey);
-
-  return (
-    <section className={`scan-review-section ${sectionKey === "juri" ? "juri-section" : ""}`}>
-      <div className="scan-section-head">
-        <strong>{sectionMeta.label}</strong>
-        <span>{rows.length} row(s)</span>
-      </div>
-
-      {rows.length === 0 ? (
-        <p className="scan-empty-state">No rows detected.</p>
-      ) : sectionKey === "juri" ? (
-        <div className="scan-juri-grid">
-          {rows.map((row) => (
-            <div key={row.id} className="scan-juri-box">
-              <ScanEntryJuriChip row={row} onClick={onEdit} />
-              {row.issue || row.originalPreview ? (
-                <small className="scan-juri-box-note">{row.issue || row.originalPreview}</small>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="scan-review-row-list">
-          {rows.map((row) => {
-            const isFlagged = row.tone === "low" || !row.isValid;
-
-            return (
-              <button
-                key={row.id}
-                type="button"
-                className={`scan-review-row ${isFlagged ? "flagged" : "safe"}`}
-                onClick={() => onEdit(row)}
-              >
-                <div className="scan-review-row-main">
-                  <span className="scan-review-value">
-                    {formatRowValue(sectionKey, row.number, row.quantity)}
-                  </span>
-                  <span className={`scan-review-status ${isFlagged ? "warning" : "safe"}`}>
-                    {isFlagged ? "Review" : "Ready"}
-                  </span>
-                </div>
-
-                {row.issue || row.originalPreview ? (
-                  <small>{row.issue || row.originalPreview}</small>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </section>
+    </div>
   );
 }
