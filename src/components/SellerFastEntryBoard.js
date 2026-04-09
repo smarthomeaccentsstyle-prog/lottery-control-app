@@ -72,17 +72,25 @@ function formatPreviewValue(mode, number, qty) {
   return mode === "juri" ? `[${normalizedNumber}-${qty}]` : `[${normalizedNumber}=${qty}]`;
 }
 
-function formatModalNumber(mode, number) {
-  if (!number && mode === "juri") {
-    return "";
+function formatModalNumber(mode, number, editableNumber) {
+  if (mode === "juri") {
+    if (!number) {
+      return "";
+    }
+
+    return editableNumber ? String(number) : formatEntryNumber(mode, number);
   }
 
   return formatEntryNumber(mode, number);
 }
 
-function formatModalPreviewValue(mode, number, qty) {
+function formatModalPreviewValue(mode, number, qty, editableNumber) {
   if (!number && mode === "juri") {
     return `[---${qty}]`;
+  }
+
+  if (mode === "juri" && editableNumber) {
+    return `[${String(number)}-${qty}]`;
   }
 
   return formatPreviewValue(mode, number, qty);
@@ -321,7 +329,12 @@ export default function SellerFastEntryBoard({
   const modalPreviewQty = entryModal.clearOnSave
     ? 0
     : entryModal.baseQty + (Number(entryModal.typedQty || 0) || 0);
-  const modalPreviewText = formatModalPreviewValue(entryModal.mode, entryModal.number, modalPreviewQty);
+  const modalPreviewText = formatModalPreviewValue(
+    entryModal.mode,
+    entryModal.number,
+    modalPreviewQty,
+    entryModal.editableNumber
+  );
   const modalHelperText = entryModal.clearOnSave
     ? entryModal.baseQty
       ? `Current qty ${entryModal.baseQty} will be cleared.`
@@ -366,7 +379,7 @@ export default function SellerFastEntryBoard({
                     type="text"
                     inputMode="numeric"
                     maxLength={entryModal.mode === "juri" ? 2 : 1}
-                    value={formatModalNumber(entryModal.mode, entryModal.number)}
+                    value={formatModalNumber(entryModal.mode, entryModal.number, entryModal.editableNumber)}
                     readOnly={!entryModal.editableNumber}
                     onChange={(event) => handleModalNumberChange(event.target.value)}
                   />

@@ -827,10 +827,21 @@ test("adds duplicate fast-entry values into the same house and juri rows", async
   let juriNumberInput = document.body.querySelector('.fast-qty-modal input[type="text"]:not([readonly])');
   quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
 
+  expect(juriNumberInput.value).toBe("");
+
+  await act(async () => {
+    setInputValue(juriNumberInput, "1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(juriNumberInput.value).toBe("1");
+
   await act(async () => {
     setInputValue(juriNumberInput, "12");
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+
+  expect(juriNumberInput.value).toBe("12");
 
   await act(async () => {
     setInputValue(quantityInput, "10");
