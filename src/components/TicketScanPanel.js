@@ -4,10 +4,13 @@ export default function TicketScanPanel({
   busy,
   fileName,
   panelRef,
+  scanStatus,
   onSelectFile,
 }) {
   const cameraInputRef = useRef(null);
   const uploadInputRef = useRef(null);
+  const scanUnavailable = Boolean(scanStatus && scanStatus.available === false);
+  const disableActions = busy || scanUnavailable;
 
   const handleFileChange = (event) => {
     const [file] = Array.from(event.target.files || []);
@@ -41,7 +44,7 @@ export default function TicketScanPanel({
           type="button"
           className="seller-entry-scan-btn"
           onClick={() => cameraInputRef.current && cameraInputRef.current.click()}
-          disabled={busy}
+          disabled={disableActions}
         >
           {busy ? "Scanning..." : "Camera Capture"}
         </button>
@@ -50,15 +53,21 @@ export default function TicketScanPanel({
           type="button"
           className="seller-entry-scan-btn seller-entry-scan-btn-secondary"
           onClick={() => uploadInputRef.current && uploadInputRef.current.click()}
-          disabled={busy}
+          disabled={disableActions}
         >
           Gallery Upload
         </button>
       </div>
 
       <small className="seller-entry-scan-note">
-        Works with clustered handwriting, rough paper, loose notes, and rotated phone images. Review is always required before apply.
+        Works with clustered handwriting, rough paper, loose notes, and rotated phone images.
       </small>
+
+      {scanUnavailable ? (
+        <div className="seller-entry-scan-status seller-entry-scan-status-warning">
+          {scanStatus.message || "Ticket scan is not configured on the server."}
+        </div>
+      ) : null}
 
       {busy ? (
         <div className="seller-entry-scan-status">

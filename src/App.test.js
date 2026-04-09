@@ -217,6 +217,32 @@ function getActiveEntryInputs(container) {
   };
 }
 
+async function openManualTool(container) {
+  const manualButton = findButtonContainingText(container, "Super Fast Manual Entry");
+  await clickButton(manualButton);
+}
+
+function getManualQuantityInput(container) {
+  return container.querySelector(".seller-manual-house-actions .seller-entry-field input");
+}
+
+function getManualJuriInputs(container) {
+  const inputs = Array.from(
+    container.querySelectorAll(".seller-manual-juri-form .seller-entry-field input")
+  );
+
+  return {
+    numberInput: inputs[0] || null,
+    quantityInput: inputs[1] || null,
+  };
+}
+
+function findManualDigitButton(container, digit) {
+  return Array.from(container.querySelectorAll(".seller-manual-digit-pad button")).find(
+    (button) => button.textContent.trim() === String(digit)
+  );
+}
+
 beforeEach(() => {
   localStorage.clear();
   setPathname("/");
@@ -332,13 +358,11 @@ test("renders seller panel with seller session", async () => {
   expect(container.textContent).toContain("Seller Panel");
   expect(container.textContent).toContain("Seller Ticket Entry");
   expect(container.textContent).toContain(
-    "Manual entry stays primary, with handwritten scan review as an extra way to fill ticket rows."
+    "Choose between the current scanner workflow and a separate super-fast manual typing tool."
   );
   expect(container.textContent).not.toContain("Save Ticket");
   expect(container.textContent).toContain("Scan Entry");
-  expect(container.textContent).toContain("3rd House");
-  expect(container.textContent).toContain("4th House");
-  expect(container.textContent).toContain("Juri");
+  expect(container.textContent).toContain("Super Fast Manual Entry");
   await unmountApp(root);
 });
 
@@ -362,7 +386,94 @@ test("shows scan controls without removing manual entry tools", async () => {
   expect(container.textContent).toContain("Camera Capture");
   expect(container.textContent).toContain("Gallery Upload");
   expect(container.textContent).toContain("Live Preview");
+  expect(container.textContent).toContain("Super Fast Manual Entry");
   expect(container.textContent).not.toContain("Reset Mode");
+  await unmountApp(root);
+});
+
+test("opens the separate manual fast-entry tool from the entry switcher", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const manualButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent && button.textContent.includes("Super Fast Manual Entry")
+  );
+
+  await act(async () => {
+    manualButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Manual Fast Entry");
+  expect(container.textContent).toContain("3rd House");
+  expect(container.textContent).toContain("4th House");
+  expect(container.textContent).toContain("Juri");
+  expect(container.textContent).toContain("Undo Last");
+  expect(container.textContent).toContain("Clear Current Mode");
+  await unmountApp(root);
+});
+
+test("shows a clear scan setup warning when backend scan is unavailable", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  global.fetch = jest.fn((url) => {
+    const endpoint = String(url);
+
+    if (endpoint.includes("/bootstrap")) {
+      return createJsonResponse({
+        sellers: [PUBLIC_SELLER],
+        scanStatus: {
+          available: false,
+          model: "gpt-4.1",
+          message: "OPENAI_API_KEY is not configured on the server.",
+        },
+      });
+    }
+
+    if (endpoint.includes("/auth/session")) {
+      return createJsonResponse({
+        session: JSON.parse(localStorage.getItem(SESSION_KEY)),
+      });
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets: [] });
+    }
+
+    if (endpoint.includes("/results")) {
+      return createJsonResponse({ results: [] });
+    }
+
+    return createJsonResponse({});
+  });
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("OPENAI_API_KEY is not configured on the server.");
   await unmountApp(root);
 });
 
@@ -767,11 +878,12 @@ test("saves a new ticket from the manual seller entry screen", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const { numberInput, quantityInput } = getActiveEntryInputs(container);
+  await openManualTool(container);
 
-  setInputValue(numberInput, "1");
+  await clickButton(findManualDigitButton(container, "1"));
+  const quantityInput = getManualQuantityInput(container);
   setInputValue(quantityInput, "1");
-  await clickButton(findButtonByText(container, "Add Row"));
+  await clickButton(findButtonContainingText(container, "Add 3H"));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -811,29 +923,28 @@ test("adds duplicate manual-entry values into the same house and juri rows", asy
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  let entryInputs = getActiveEntryInputs(container);
+  await openManualTool(container);
 
-  setInputValue(entryInputs.numberInput, "3");
-  setInputValue(entryInputs.quantityInput, "5");
-  await clickButton(findButtonByText(container, "Add Row"));
+  await clickButton(findManualDigitButton(container, "3"));
+  setInputValue(getManualQuantityInput(container), "5");
+  await clickButton(findButtonContainingText(container, "Add 3H"));
 
-  expect(container.textContent).toContain("3H 3 × 5");
+  expect(container.textContent).toContain("3H3 × 5");
 
-  entryInputs = getActiveEntryInputs(container);
-  setInputValue(entryInputs.numberInput, "3");
-  setInputValue(entryInputs.quantityInput, "2");
-  await clickButton(findButtonByText(container, "Add Row"));
+  await clickButton(findManualDigitButton(container, "3"));
+  setInputValue(getManualQuantityInput(container), "2");
+  await clickButton(findButtonContainingText(container, "Add 3H"));
 
-  expect(container.textContent).toContain("3H 3 × 7");
+  expect(container.textContent).toContain("3H3 × 7");
 
   await clickButton(findButtonContainingText(container, "Juri"));
 
-  entryInputs = getActiveEntryInputs(container);
+  const entryInputs = getManualJuriInputs(container);
   setInputValue(entryInputs.numberInput, "12");
   setInputValue(entryInputs.quantityInput, "10");
   await clickButton(findButtonByText(container, "Add Row"));
 
-  expect(container.textContent).toContain("J 12 × 10");
+  expect(container.textContent).toContain("J12 × 10");
   expect(container.textContent).toContain("₹177.00");
 
   await unmountApp(root);
