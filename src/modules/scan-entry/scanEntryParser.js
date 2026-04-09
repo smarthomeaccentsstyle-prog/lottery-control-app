@@ -1,6 +1,20 @@
 const SCAN_SECTION_ORDER = ["third", "fourth", "juri"];
 const LOW_CONFIDENCE_THRESHOLD = 68;
 const MAX_QTY_LENGTH = 5;
+const DIGIT_CONFUSION_HINTS = [
+  {
+    digits: ["1", "7"],
+    label: "1 / 7",
+  },
+  {
+    digits: ["3", "8"],
+    label: "3 / 8",
+  },
+  {
+    digits: ["0", "6"],
+    label: "0 / 6",
+  },
+];
 
 const SCAN_SECTION_META = {
   third: {
@@ -317,6 +331,14 @@ function buildOriginalPreview(originalText, normalizedText) {
   return `${cleanedOriginal} -> ${normalizedText}`;
 }
 
+function buildConfusionSuggestions(number, quantity) {
+  const value = `${number || ""}${quantity || ""}`;
+
+  return DIGIT_CONFUSION_HINTS.filter(({ digits }) =>
+    digits.some((digit) => value.includes(digit))
+  ).map((item) => item.label);
+}
+
 function buildReviewRow(sectionKey, fragment, confidence, rowIndex) {
   const parseMeta = parseCandidate(sectionKey, fragment);
   const number =
@@ -337,6 +359,10 @@ function buildReviewRow(sectionKey, fragment, confidence, rowIndex) {
   );
   const lineConfidence = Number.isFinite(Number(confidence)) ? Number(confidence) : 0;
   const separatorNeedsReview = parseMeta.separatorFound !== expectedSeparator;
+  const confusionSuggestions =
+    lineConfidence < LOW_CONFIDENCE_THRESHOLD
+      ? buildConfusionSuggestions(number, quantity)
+      : [];
   const shouldReview =
     !validation.ok ||
     lineConfidence < LOW_CONFIDENCE_THRESHOLD ||
@@ -359,17 +385,19 @@ function buildReviewRow(sectionKey, fragment, confidence, rowIndex) {
     issue:
       !validation.ok
         ? validation.message
+        : confusionSuggestions.length > 0
+          ? `Check ${confusionSuggestions.join(", ")}`
         : lineConfidence < LOW_CONFIDENCE_THRESHOLD
           ? "Low OCR confidence"
           : separatorNeedsReview
             ? "Separator was normalized"
-          : parseMeta.usedFallback
-            ? "Separator was not clearly read"
-            : parseMeta.digitCorrected || parseMeta.separatorCorrected
-              ? "OCR normalization applied"
-              : "",
+            : parseMeta.usedFallback
+              ? "Separator was not clearly read"
+              : parseMeta.digitCorrected || parseMeta.separatorCorrected
+                ? "OCR normalization applied"
+                : "",
     edited: false,
-    suggestions: [],
+    suggestions: confusionSuggestions,
   };
 }
 
@@ -408,6 +436,7 @@ function buildReviewStateFromSections(sectionLines, ocrText, layout) {
         if (/\d/.test(lineText)) {
           ignoredLines.push({
             id: `ignored-${sectionKey}-${lineIndex}`,
+            section: sectionKey,
             text: lineText,
             confidence: Number(line && line.confidence ? line.confidence : 0),
             reason: "Ticket row format not recognized",

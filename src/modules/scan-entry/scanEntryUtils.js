@@ -24,6 +24,20 @@ function accumulateQuantity(map, number, quantity) {
   map[number] = String(nextValue);
 }
 
+function buildParsedDataFromSections(sections = {}) {
+  return {
+    h3: (sections.third || [])
+      .filter((row) => row.isValid)
+      .map((row) => ({ number: row.number, qty: row.quantity })),
+    h4: (sections.fourth || [])
+      .filter((row) => row.isValid)
+      .map((row) => ({ number: row.number, qty: row.quantity })),
+    juri: (sections.juri || [])
+      .filter((row) => row.isValid)
+      .map((row) => ({ number: row.number, qty: row.quantity })),
+  };
+}
+
 export {
   buildScanReviewFromLines,
   buildScanReviewFromScanPayload,
@@ -31,6 +45,9 @@ export {
   formatRowValue,
   getSectionMeta,
   getSectionOrder,
+  normalizeEditedNumber,
+  normalizeEditedQuantity,
+  validateEditedRow,
 };
 
 export function getReviewStats(reviewState) {
@@ -92,17 +109,48 @@ export function updateReviewRow(reviewState, rowId, updates) {
 
   return {
     ...nextState,
-    parsedData: {
-      h3: (nextState.sections.third || [])
-        .filter((row) => row.isValid)
-        .map((row) => ({ number: row.number, qty: row.quantity })),
-      h4: (nextState.sections.fourth || [])
-        .filter((row) => row.isValid)
-        .map((row) => ({ number: row.number, qty: row.quantity })),
-      juri: (nextState.sections.juri || [])
-        .filter((row) => row.isValid)
-        .map((row) => ({ number: row.number, qty: row.quantity })),
-    },
+    parsedData: buildParsedDataFromSections(nextState.sections),
+  };
+}
+
+export function insertReviewRow(reviewState, sectionKey, updates, options = {}) {
+  const number = normalizeEditedNumber(sectionKey, updates.number);
+  const quantity = normalizeEditedQuantity(updates.quantity);
+  const validation = validateEditedRow(sectionKey, number, quantity);
+  const normalizedText = number && quantity ? formatRowValue(sectionKey, number, quantity) : "";
+  const originalText = String(options.originalText || "").trim();
+  const nextSections = {
+    ...(reviewState && reviewState.sections ? reviewState.sections : {}),
+  };
+  const nextRows = Array.isArray(nextSections[sectionKey]) ? [...nextSections[sectionKey]] : [];
+
+  if (Number(quantity || 0) > 0) {
+    nextRows.push({
+      id: options.rowId || `${sectionKey}-manual-${Date.now()}`,
+      section: sectionKey,
+      number,
+      quantity,
+      normalizedText,
+      originalText,
+      originalPreview: originalText && originalText !== normalizedText ? `${originalText} -> ${normalizedText}` : originalText,
+      confidence: Number(options.confidence || 0),
+      tone: validation.ok ? "corrected" : "low",
+      isValid: validation.ok,
+      issue: validation.ok ? "" : validation.message,
+      edited: true,
+      suggestions: [],
+    });
+  }
+
+  nextSections[sectionKey] = nextRows;
+
+  return {
+    ...(reviewState || {}),
+    sections: nextSections,
+    ignoredLines: Array.isArray(reviewState && reviewState.ignoredLines)
+      ? reviewState.ignoredLines.filter((line) => line.id !== options.ignoredId)
+      : [],
+    parsedData: buildParsedDataFromSections(nextSections),
   };
 }
 

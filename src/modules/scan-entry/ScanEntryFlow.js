@@ -1,169 +1,246 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useMemo, useRef, useState } from "react";
 
 import "./ScanEntry.css";
 import {
   buildManualEntryDraft,
   buildScanReviewFromScanPayload,
   createEmptyReviewState,
-  findFirstIssueRow,
   getReviewStats,
-  getSectionMeta,
+  getSectionOrder,
+  insertReviewRow,
+  normalizeEditedNumber,
+  normalizeEditedQuantity,
   updateReviewRow,
+  validateEditedRow,
 } from "./scanEntryUtils.js";
 import {
-  captureVideoFrame,
   createPreviewDataUrl,
   enhanceCanvasForOcr,
   loadFileToCanvas,
   recognizeTicketImage,
-  startRearCamera,
-  stopMediaStream,
 } from "./scanEntryOcr.js";
 import ScanEntryReview from "./ScanEntryReview.js";
 
-const SCAN_FAILURE_MESSAGE = "Scan failed. Retry or use manual entry.";
+function buildEditorState(item) {
+  if (!item) {
+    return {
+      itemId: "",
+      sourceKind: "row",
+      section: "third",
+      number: "",
+      quantity: "",
+      activeField: "number",
+      replaceOnInput: false,
+    };
+  }
 
-function emptyEditorState() {
   return {
-    rowId: "",
-    section: "",
-    number: "",
-    quantity: "",
+    itemId: item.id,
+    sourceKind: item.sourceKind || "row",
+    section: item.section,
+    number: String(item.number || ""),
+    quantity: String(item.quantity || ""),
+    activeField:
+      item.sourceKind === "ignored" || !item.number || (item.section === "juri" && String(item.number).length < 2)
+        ? "number"
+        : "quantity",
+    replaceOnInput: true,
   };
 }
 
+function formatProcessingStatus(status) {
+  const text = String(status || "").toLowerCase();
+
+  if (text.includes("rotated")) {
+    return "Auto-rotating ticket...";
+  }
+
+  if (text.includes("3rd house")) {
+    return "Detecting 3rd House rows...";
+  }
+
+  if (text.includes("4th house")) {
+    return "Detecting 4th House rows...";
+  }
+
+  if (text.includes("juri")) {
+    return "Detecting Juri rows...";
+  }
+
+  if (text.includes("complete")) {
+    return "Confidence review ready";
+  }
+
+  return status || "Scanning ticket...";
+}
+
+function buildSectionItems(reviewState) {
+  const items = getSectionOrder().reduce((accumulator, sectionKey) => {
+    accumulator[sectionKey] = ((reviewState && reviewState.sections && reviewState.sections[sectionKey]) || []).map(
+      (row) => ({
+        ...row,
+        sourceKind: "row",
+      })
+    );
+    return accumulator;
+  }, {});
+
+  ((reviewState && reviewState.ignoredLines) || []).forEach((line) => {
+    const sectionKey = line.section || "third";
+
+    if (!items[sectionKey]) {
+      items[sectionKey] = [];
+    }
+
+    items[sectionKey].push({
+      id: line.id,
+      section: sectionKey,
+      sourceKind: "ignored",
+      number: "",
+      quantity: "",
+      tone: "low",
+      isValid: false,
+      issue: line.reason || "OCR line needs manual correction",
+      originalText: line.text || "",
+      originalPreview: line.text || "",
+      confidence: Number(line.confidence || 0),
+      suggestions: [],
+    });
+  });
+
+  return items;
+}
+
+function flattenSectionItems(sectionItems) {
+  return getSectionOrder().flatMap((sectionKey) => sectionItems[sectionKey] || []);
+}
+
+function findFirstFlaggedItem(sectionItems) {
+  return (
+    flattenSectionItems(sectionItems).find(
+      (item) => item.sourceKind === "ignored" || item.tone === "low" || !item.isValid
+    ) || null
+  );
+}
+
+function findItemById(sectionItems, itemId) {
+  return flattenSectionItems(sectionItems).find((item) => item.id === itemId) || null;
+}
+
+function getRowTotal(row, singleRate, juriRate) {
+  return Number(row.quantity || 0) * (row.section === "juri" ? juriRate : singleRate);
+}
+
 export default function ScanEntryFlow({
-  isOpen,
+  bookingDateAdjusted,
   bookingDate,
+  date,
   drawLabel,
-  onApply,
-  onClose,
+  drawOptions,
+  drawTime,
+  formatCurrency,
+  formatEntryCutoffTime,
+  juriRate,
+  lastSavedTicket,
+  lastSavedTicketId,
+  maxBookingDate,
+  onConfirmAndSave,
+  onDateChange,
+  onDismissSavedTicket,
+  onDrawTimeChange,
+  onPrintSavedTicket,
+  singleRate,
+  ticketActionNotice,
+  todayString,
 }) {
-  const [phase, setPhase] = useState("camera");
+  const [phase, setPhase] = useState("input");
   const [reviewState, setReviewState] = useState(() => createEmptyReviewState());
-  const [processingProgress, setProcessingProgress] = useState(0);
-  const [processingLabel, setProcessingLabel] = useState("Opening camera...");
-  const [scanError, setScanError] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
-  const [editorState, setEditorState] = useState(() => emptyEditorState());
-  const [cameraMessage, setCameraMessage] = useState("Point the camera at one handwritten ticket.");
-  const fileInputRef = useRef(null);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const quantityInputRef = useRef(null);
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [processingLabel, setProcessingLabel] = useState("Choose a ticket image to start scanning.");
+  const [scanError, setScanError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editorState, setEditorState] = useState(() => buildEditorState(null));
+  const [pressedKey, setPressedKey] = useState("");
+  const cameraInputRef = useRef(null);
+  const uploadInputRef = useRef(null);
+  const pendingSourceRef = useRef("gallery");
+  const keyPulseTimeoutRef = useRef(null);
 
   const stats = useMemo(() => getReviewStats(reviewState), [reviewState]);
-  const hasBlockingIssues = stats.issueCount > 0;
-  const hasSafeRows = stats.safeCount > 0;
+  const sectionItems = useMemo(() => buildSectionItems(reviewState), [reviewState]);
+  const selectedItem = useMemo(
+    () => findItemById(sectionItems, editorState.itemId),
+    [editorState.itemId, sectionItems]
+  );
+  const estimatedTotal = useMemo(
+    () =>
+      buildManualEntryDraft(reviewState, {
+        safeOnly: false,
+      }).appliedRows.reduce((sum, row) => sum + getRowTotal(row, singleRate, juriRate), 0),
+    [juriRate, reviewState, singleRate]
+  );
+  const normalizedEditorNumber = normalizeEditedNumber(editorState.section, editorState.number);
+  const normalizedEditorQuantity = normalizeEditedQuantity(editorState.quantity);
+  const editorValidation = editorState.itemId
+    ? validateEditedRow(editorState.section, normalizedEditorNumber, normalizedEditorQuantity)
+    : {
+        ok: false,
+        message: "",
+      };
+  const canApplyEditorFix = Boolean(editorState.itemId) && editorValidation.ok;
+  const canRemoveSelectedRow =
+    Boolean(editorState.itemId) && editorState.sourceKind === "row" && !saving;
 
-  useEffect(() => {
-    if (!isOpen || typeof document === "undefined") {
-      return undefined;
-    }
+  const pulseKey = (key) => {
+    setPressedKey(key);
+    window.clearTimeout(keyPulseTimeoutRef.current);
+    keyPulseTimeoutRef.current = window.setTimeout(() => {
+      setPressedKey("");
+    }, 140);
 
-    const { overflow } = document.body.style;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      stopMediaStream(streamRef.current);
-      streamRef.current = null;
-      setPhase("camera");
-      setReviewState(createEmptyReviewState());
-      setProcessingProgress(0);
-      setProcessingLabel("Opening camera...");
-      setScanError("");
-      setPreviewUrl("");
-      setEditorState(emptyEditorState());
-      setCameraMessage("Point the camera at one handwritten ticket.");
-      return undefined;
-    }
-
-    if (phase !== "camera" || !videoRef.current) {
-      return undefined;
-    }
-
-    let active = true;
-
-    const bootCamera = async () => {
-      try {
-        setScanError("");
-        setPreviewUrl("");
-        setCameraMessage("Opening rear camera...");
-        stopMediaStream(streamRef.current);
-        streamRef.current = await startRearCamera(videoRef.current);
-
-        if (!active) {
-          stopMediaStream(streamRef.current);
-          streamRef.current = null;
-          return;
-        }
-
-        setCameraMessage("Hold steady and capture the ticket inside the frame.");
-      } catch (error) {
-        if (active) {
-          setScanError(error && error.message ? error.message : "Camera access failed");
-          setCameraMessage("You can still upload a ticket photo.");
-        }
-      }
-    };
-
-    bootCamera();
-
-    return () => {
-      active = false;
-      stopMediaStream(streamRef.current);
-      streamRef.current = null;
-    };
-  }, [isOpen, phase]);
-
-  useEffect(() => {
-    if (!editorState.rowId || !quantityInputRef.current) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      const input = quantityInputRef.current;
-
-      if (!input) {
-        return;
-      }
-
-      input.focus();
-      input.select();
-    }, 30);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [editorState.rowId]);
-
-  const openFilePicker = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate(10);
     }
   };
 
-  const closeEditor = () => {
-    setEditorState(emptyEditorState());
+  const resetScanner = () => {
+    setPhase("input");
+    setReviewState(createEmptyReviewState());
+    setPreviewUrl("");
+    setProcessingProgress(0);
+    setProcessingLabel("Choose a ticket image to start scanning.");
+    setScanError("");
+    setSaving(false);
+    setEditorState(buildEditorState(null));
+  };
+
+  const openSourcePicker = (source) => {
+    pendingSourceRef.current = source;
+
+    if (source === "camera" && cameraInputRef.current) {
+      cameraInputRef.current.click();
+      return;
+    }
+
+    if (uploadInputRef.current) {
+      uploadInputRef.current.click();
+    }
+  };
+
+  const selectEditorItem = (item) => {
+    setEditorState(buildEditorState(item));
   };
 
   const runOcr = async (rawCanvas) => {
     const enhancedCanvas = enhanceCanvasForOcr(rawCanvas);
 
-    stopMediaStream(streamRef.current);
-    streamRef.current = null;
     setPhase("processing");
     setProcessingProgress(0.08);
-    setProcessingLabel("Scanning...");
+    setProcessingLabel("Auto-cropping and enhancing ticket...");
     setScanError("");
     setPreviewUrl(createPreviewDataUrl(rawCanvas));
+    setEditorState(buildEditorState(null));
 
     try {
       const result = await recognizeTicketImage(enhancedCanvas, {
@@ -173,41 +250,35 @@ export default function ScanEntryFlow({
           }
 
           setProcessingProgress(Math.max(0.08, Math.min(0.98, message.progress)));
-          setProcessingLabel(message.status || "Scanning...");
+          setProcessingLabel(formatProcessingStatus(message.status));
         },
       });
-
-      const nextReview = buildScanReviewFromScanPayload(result);
-      const nextStats = getReviewStats(nextReview);
+      const nextReviewState = buildScanReviewFromScanPayload(result);
+      const nextStats = getReviewStats(nextReviewState);
 
       if (nextStats.totalRows === 0 && nextStats.ignoredCount === 0) {
-        throw new Error(SCAN_FAILURE_MESSAGE);
+        throw new Error("No ticket rows were detected. Try a sharper photo or manual entry.");
       }
 
-      setReviewState(nextReview);
-      setProcessingProgress(1);
-      setProcessingLabel("Review ready");
+      const nextSectionItems = buildSectionItems(nextReviewState);
+      const firstIssueItem = findFirstFlaggedItem(nextSectionItems);
+
+      setReviewState(nextReviewState);
       setPhase("review");
+      setProcessingProgress(1);
+      setProcessingLabel("Confidence review ready");
+      setEditorState(buildEditorState(firstIssueItem));
     } catch (error) {
-      setScanError(SCAN_FAILURE_MESSAGE);
-      setPreviewUrl("");
-      setReviewState(createEmptyReviewState());
-      setPhase("camera");
+      setScanError(error && error.message ? error.message : "Scan failed. Try another image.");
+      setPhase("input");
       setProcessingProgress(0);
-      setProcessingLabel("Opening camera...");
+      setProcessingLabel("Choose a ticket image to start scanning.");
+      setReviewState(createEmptyReviewState());
+      setEditorState(buildEditorState(null));
     }
   };
 
-  const handleCapture = async () => {
-    try {
-      const canvas = captureVideoFrame(videoRef.current);
-      await runOcr(canvas);
-    } catch (error) {
-      setScanError(error && error.message ? error.message : SCAN_FAILURE_MESSAGE);
-    }
-  };
-
-  const handleFileChange = async (event) => {
+  const handleFileSelection = async (event) => {
     const nextFile = event.target.files && event.target.files[0];
 
     if (!nextFile) {
@@ -218,266 +289,425 @@ export default function ScanEntryFlow({
       const canvas = await loadFileToCanvas(nextFile);
       await runOcr(canvas);
     } catch (error) {
-      setScanError(error && error.message ? error.message : SCAN_FAILURE_MESSAGE);
-      setPhase("camera");
+      setScanError(error && error.message ? error.message : "Ticket image could not be scanned.");
+      setPhase("input");
+      setProcessingProgress(0);
     } finally {
       event.target.value = "";
     }
   };
 
-  const openEditor = (row) => {
-    setEditorState({
-      rowId: row.id,
-      section: row.section,
-      number: row.number,
-      quantity: row.quantity,
-    });
+  const focusEditorField = (field) => {
+    setEditorState((current) => ({
+      ...current,
+      activeField: field,
+      replaceOnInput: true,
+    }));
   };
 
-  const saveEditor = () => {
-    if (!editorState.rowId) {
+  const handleDigitPress = (digit) => {
+    if (!editorState.itemId) {
       return;
     }
 
-    setReviewState((current) =>
-      updateReviewRow(current, editorState.rowId, {
-        number: editorState.number,
-        quantity: editorState.quantity,
-      })
-    );
-    closeEditor();
+    pulseKey(`digit-${digit}`);
+    setEditorState((current) => {
+      if (current.activeField === "number") {
+        const baseValue = current.replaceOnInput ? "" : current.number;
+        const nextNumber = normalizeEditedNumber(current.section, `${baseValue}${digit}`);
+        const nextNumberComplete =
+          current.section === "juri" ? nextNumber.length === 2 : nextNumber.length === 1;
+
+        return {
+          ...current,
+          number: nextNumber,
+          activeField: nextNumberComplete ? "quantity" : "number",
+          replaceOnInput: nextNumberComplete,
+        };
+      }
+
+      const baseValue = current.replaceOnInput ? "" : current.quantity;
+
+      return {
+        ...current,
+        quantity: normalizeEditedQuantity(`${baseValue}${digit}`),
+        replaceOnInput: false,
+      };
+    });
   };
 
-  const openFirstIssue = () => {
-    const row = findFirstIssueRow(reviewState);
-
-    if (row) {
-      openEditor(row);
+  const handleBackspace = () => {
+    if (!editorState.itemId) {
+      return;
     }
+
+    pulseKey("digit-backspace");
+    setEditorState((current) => {
+      if (current.activeField === "quantity") {
+        if (current.quantity) {
+          return {
+            ...current,
+            quantity: current.quantity.slice(0, -1),
+            replaceOnInput: false,
+          };
+        }
+
+        return {
+          ...current,
+          activeField: "number",
+          replaceOnInput: false,
+        };
+      }
+
+      return {
+        ...current,
+        number: current.number.slice(0, -1),
+        replaceOnInput: false,
+      };
+    });
   };
 
-  const confirmScan = (safeOnly = false) => {
+  const focusNextIssue = (nextState) => {
+    const nextItems = buildSectionItems(nextState);
+    const nextIssueItem = findFirstFlaggedItem(nextItems);
+    setEditorState(buildEditorState(nextIssueItem));
+  };
+
+  const applyEditorFix = () => {
+    if (!canApplyEditorFix || !selectedItem) {
+      return;
+    }
+
+    const fixPayload = {
+      number: normalizedEditorNumber,
+      quantity: normalizedEditorQuantity,
+    };
+    const nextState =
+      editorState.sourceKind === "ignored"
+        ? insertReviewRow(reviewState, editorState.section, fixPayload, {
+            ignoredId: editorState.itemId,
+            originalText: selectedItem.originalText || selectedItem.originalPreview,
+            confidence: selectedItem.confidence,
+          })
+        : updateReviewRow(reviewState, editorState.itemId, fixPayload);
+
+    pulseKey("apply-fix");
+    setReviewState(nextState);
+    focusNextIssue(nextState);
+  };
+
+  const removeSelectedRow = () => {
+    if (!canRemoveSelectedRow) {
+      return;
+    }
+
+    const nextState = updateReviewRow(reviewState, editorState.itemId, {
+      number: editorState.number,
+      quantity: "",
+    });
+
+    pulseKey("remove-row");
+    setReviewState(nextState);
+    focusNextIssue(nextState);
+  };
+
+  const confirmAndSave = async () => {
     const draft = buildManualEntryDraft(reviewState, {
-      safeOnly,
+      safeOnly: false,
     });
 
-    if (draft.appliedRows.length === 0) {
-      setScanError("No valid ticket rows are ready to apply.");
+    if (draft.appliedRows.length === 0 || stats.issueCount > 0) {
+      setScanError("Fix the highlighted rows before saving this ticket.");
       return;
     }
 
-    onApply({
-      ...draft,
-      safeOnly,
-    });
-    onClose();
+    try {
+      setSaving(true);
+      setScanError("");
+      await onConfirmAndSave(draft);
+      resetScanner();
+    } catch (error) {
+      setScanError(error && error.message ? error.message : "Ticket save failed.");
+    } finally {
+      setSaving(false);
+    }
   };
-  const editorPreviewNumber =
-    editorState.section === "juri"
-      ? editorState.number
-        ? String(editorState.number).padStart(2, "0")
-        : "--"
-      : editorState.number || "-";
-  const editorPreviewText =
-    editorState.section === "juri"
-      ? `[${editorPreviewNumber}-${editorState.quantity || 0}]`
-      : `[${editorPreviewNumber}=${editorState.quantity || 0}]`;
 
-  const modalContent = (
-    <div className="scan-entry-overlay" onClick={onClose}>
-      <div className="scan-entry-shell" onClick={(event) => event.stopPropagation()}>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={handleFileChange}
-        />
+  return (
+    <div className="scan-board-shell">
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={handleFileSelection}
+      />
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={handleFileSelection}
+      />
 
-        {phase === "review" ? (
-          <header className="scan-entry-header review-mode">
-            <div>
-              <span className="scan-entry-kicker">SCAN REVIEW</span>
-              <h2>SCAN REVIEW</h2>
-              <p>
-                Ticket will stay on {bookingDate} | {drawLabel}. Tap any row to correct it before it reaches the existing save flow.
-              </p>
-            </div>
-            <button type="button" className="outline-btn scan-close-btn" onClick={onClose}>
-              Close
-            </button>
-          </header>
-        ) : (
-          <header className="scan-entry-header">
-            <div>
-              <span className="scan-entry-kicker">Scan Entry</span>
-              <h2>Scan Entry</h2>
-              <p>
-                {bookingDate} | {drawLabel}. The scan only fills ticket rows. Save still uses the current seller ticket logic after your confirmation.
-              </p>
-            </div>
-            <button type="button" className="outline-btn scan-close-btn" onClick={onClose}>
-              Close
-            </button>
-          </header>
-        )}
-
-        {previewUrl ? (
-          <div className="scan-preview-strip">
-            <img src={previewUrl} alt="Captured ticket preview" />
-            <div>
-              <strong>{drawLabel}</strong>
-              <span>{bookingDate}</span>
-            </div>
-          </div>
-        ) : null}
-
-        {scanError ? <div className="scan-feedback error">{scanError}</div> : null}
-
-        {phase === "camera" ? (
-          <div className="scan-camera-stage">
-            <div className="scan-camera-frame">
-              <video ref={videoRef} playsInline muted autoPlay />
-              <div className="scan-camera-guide">
-                <div />
-              </div>
-            </div>
-
-            <div className="scan-camera-copy">
-              <strong>3RD HOUSE, 4TH HOUSE and JURI</strong>
-              <span>{cameraMessage}</span>
-            </div>
-
-            <div className="scan-camera-actions">
-              <button type="button" onClick={handleCapture}>
-                Capture Ticket
-              </button>
-              <button type="button" className="outline-btn" onClick={openFilePicker}>
-                Upload Photo
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {phase === "processing" ? (
-          <div className="scan-processing-stage">
-            <div
-              className="scan-processing-ring"
-              style={{ "--scan-progress": `${Math.round(processingProgress * 360)}` }}
-            >
-              <strong>{Math.round(processingProgress * 100)}%</strong>
-            </div>
-            <div className="scan-processing-copy">
-              <strong>{processingLabel}</strong>
-              <span>Scanning handwritten rows now. Nothing is saved until you confirm.</span>
-            </div>
-          </div>
-        ) : null}
-
-        {phase === "review" ? (
-          <ScanEntryReview
-            reviewState={reviewState}
-            stats={stats}
-            hasBlockingIssues={hasBlockingIssues}
-            hasSafeRows={hasSafeRows}
-            onEdit={openEditor}
-            onFixFirstIssue={openFirstIssue}
-            onConfirmAll={() => confirmScan(false)}
-            onConfirmSafe={() => confirmScan(true)}
-            onRetake={() => {
-              setPreviewUrl("");
-              setScanError("");
-              setReviewState(createEmptyReviewState());
-              setPhase("camera");
-            }}
-          />
-        ) : null}
-
-        {editorState.rowId ? (
-          <div className="scan-edit-overlay" onClick={closeEditor}>
-            <div className="scan-edit-sheet" onClick={(event) => event.stopPropagation()}>
-              <div className="scan-edit-head">
-                <div>
-                  <strong>{getSectionMeta(editorState.section).label}</strong>
-                  <span>Number stays visible and quantity is auto-focused for fast correction.</span>
-                </div>
-                <button type="button" className="outline-btn" onClick={closeEditor}>
-                  Close
-                </button>
-              </div>
-
-              <div className="scan-edit-grid">
-                <label>
-                  <span>Number</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={2}
-                    value={editorState.number}
-                    onChange={(event) =>
-                      setEditorState((current) => ({
-                        ...current,
-                        number: event.target.value.replace(/[^\d]/g, "").slice(-2),
-                      }))
-                    }
-                  />
-                </label>
-
-                <label>
-                  <span>Quantity</span>
-                  <input
-                    ref={quantityInputRef}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={5}
-                    value={editorState.quantity}
-                    onChange={(event) =>
-                      setEditorState((current) => ({
-                        ...current,
-                        quantity: event.target.value.replace(/[^\d]/g, "").slice(0, 5),
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className="scan-edit-preview">
-                <span>Live</span>
-                <strong>{editorPreviewText}</strong>
-                <small>Preview updates while you type.</small>
-              </div>
-
-              <div className="scan-edit-actions">
-                <button
-                  type="button"
-                  className="outline-btn danger-btn"
-                  onClick={() =>
-                    setEditorState((current) => ({
-                      ...current,
-                      quantity: "",
-                    }))
-                  }
-                >
-                  Clear
-                </button>
-                <button type="button" onClick={saveEditor}>
-                  Save Fix
-                </button>
-                <button type="button" className="outline-btn" onClick={closeEditor}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+      <div className="scan-board-header">
+        <div className="section-header">
+          <h2>Scanner Entry</h2>
+          <span>Auto-detect ticket rows, fix only the doubtful ones, then save directly.</span>
+        </div>
       </div>
+
+      {ticketActionNotice ? (
+        <div className={`fast-entry-inline-note ${ticketActionNotice.tone || "info"}`}>
+          <span>{ticketActionNotice.message}</span>
+        </div>
+      ) : null}
+
+      {scanError ? <div className="scan-feedback error">{scanError}</div> : null}
+
+      <div className="fast-entry-booking-bar fast-entry-booking-bar-v2">
+        <div className="fast-entry-booking-pill">
+          <span>Booking For:</span>
+          <strong>{bookingDate}</strong>
+          <small>
+            {drawLabel}
+            {bookingDateAdjusted ? ` | moved after ${formatEntryCutoffTime(drawTime)}` : ""}
+          </small>
+        </div>
+
+        <label className="fast-entry-control">
+          <span>Date</span>
+          <input
+            type="date"
+            min={todayString}
+            max={maxBookingDate}
+            value={date}
+            onChange={(event) => onDateChange(event.target.value)}
+          />
+        </label>
+
+        <label className="fast-entry-control">
+          <span>Draw</span>
+          <select value={drawTime} onChange={(event) => onDrawTimeChange(event.target.value)}>
+            {drawOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="fast-entry-booking-note">
+        <strong>AI Pipeline Ready</strong>
+        <span>
+          Auto crop, orientation fix, section detection, OCR parsing and confidence scoring all run before anything can be saved.
+        </span>
+      </div>
+
+      {previewUrl ? (
+        <div className="scan-preview-strip">
+          <img src={previewUrl} alt="Scanned ticket preview" />
+          <div>
+            <strong>{drawLabel}</strong>
+            <span>{bookingDate}</span>
+            <small>{phase === "review" ? "Reviewing detected rows now." : processingLabel}</small>
+          </div>
+        </div>
+      ) : null}
+
+      {phase === "input" ? (
+        <div className="scan-source-stage">
+          <div className="scan-source-grid">
+            <button type="button" className="scan-source-card camera" onClick={() => openSourcePicker("camera")}>
+              <span>Camera Capture</span>
+              <strong>Take photo</strong>
+              <small>Opens the mobile camera and scans instantly after capture.</small>
+            </button>
+
+            <button type="button" className="scan-source-card" onClick={() => openSourcePicker("gallery")}>
+              <span>Gallery Upload</span>
+              <strong>Pick image</strong>
+              <small>Choose any saved ticket image from the device gallery.</small>
+            </button>
+
+            <button type="button" className="scan-source-card whatsapp" onClick={() => openSourcePicker("whatsapp")}>
+              <span>WhatsApp Image</span>
+              <strong>Use shared photo</strong>
+              <small>Open a forwarded or downloaded ticket image and scan it right away.</small>
+            </button>
+          </div>
+
+          <div className="scan-source-pipeline">
+            <div>
+              <strong>Auto Crop</strong>
+              <span>Ticket area is isolated before OCR starts.</span>
+            </div>
+            <div>
+              <strong>Auto Rotate</strong>
+              <span>Wrong orientation is retried automatically.</span>
+            </div>
+            <div>
+              <strong>Confidence Engine</strong>
+              <span>Only suspicious rows are highlighted for review.</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {phase === "processing" ? (
+        <div className="scan-processing-stage">
+          <div
+            className="scan-processing-ring"
+            style={{ "--scan-progress": `${Math.round(processingProgress * 360)}` }}
+          >
+            <strong>{Math.round(processingProgress * 100)}%</strong>
+          </div>
+          <div className="scan-processing-copy">
+            <strong>{processingLabel}</strong>
+            <span>Reading 3rd House, 4th House and Juri rows box by box.</span>
+          </div>
+        </div>
+      ) : null}
+
+      {phase === "review" ? (
+        <>
+          <ScanEntryReview
+            sectionItems={sectionItems}
+            stats={stats}
+            selectedItemId={editorState.itemId}
+            formatCurrency={formatCurrency}
+            saving={saving}
+            totalAmount={estimatedTotal}
+            onConfirmAndSave={confirmAndSave}
+            onRetake={resetScanner}
+            onSelectItem={selectEditorItem}
+          />
+
+          <div className="scan-inline-editor">
+            <div className="scan-inline-editor-head">
+              <div>
+                <span>{selectedItem ? "Inline Fix" : "Review Status"}</span>
+                <strong>
+                  {selectedItem
+                    ? `${selectedItem.section === "juri" ? "JURI" : selectedItem.section === "fourth" ? "4TH HOUSE" : "3RD HOUSE"} row`
+                    : stats.issueCount > 0
+                      ? "Tap a highlighted row to fix it"
+                      : "All rows are ready to save"}
+                </strong>
+              </div>
+              {selectedItem ? (
+                <small>
+                  {selectedItem.issue ||
+                    (selectedItem.suggestions && selectedItem.suggestions.length > 0
+                      ? `Check ${selectedItem.suggestions.join(", ")}`
+                      : "Tap Number or Quantity, then use the keypad.")}
+                </small>
+              ) : (
+                <small>
+                  {stats.issueCount > 0
+                    ? "The first doubtful row is selected automatically after each fix."
+                    : "You can still tap any row above to make a final adjustment."}
+                </small>
+              )}
+            </div>
+
+            {selectedItem ? (
+              <>
+                <div className="scan-inline-display-grid">
+                  <button
+                    type="button"
+                    className={`scan-inline-display ${editorState.activeField === "number" ? "active" : ""}`}
+                    onClick={() => focusEditorField("number")}
+                  >
+                    <span>Number</span>
+                    <strong>
+                      {editorState.section === "juri"
+                        ? editorState.number
+                          ? editorState.number.length === 1
+                            ? `${editorState.number}_`
+                            : editorState.number.padStart(2, "0")
+                          : "__"
+                        : editorState.number || "_"}
+                    </strong>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`scan-inline-display ${editorState.activeField === "quantity" ? "active" : ""}`}
+                    onClick={() => focusEditorField("quantity")}
+                  >
+                    <span>Quantity</span>
+                    <strong>{editorState.quantity || "0"}</strong>
+                  </button>
+                </div>
+
+                <div className="scan-inline-keypad">
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+                    <button
+                      key={digit}
+                      type="button"
+                      className={`scan-keypad-btn ${pressedKey === `digit-${digit}` ? "active" : ""}`}
+                      onClick={() => handleDigitPress(digit)}
+                    >
+                      {digit}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className={`scan-keypad-btn zero ${pressedKey === "digit-0" ? "active" : ""}`}
+                    onClick={() => handleDigitPress("0")}
+                  >
+                    0
+                  </button>
+                  <button
+                    type="button"
+                    className={`scan-keypad-btn backspace ${pressedKey === "digit-backspace" ? "active" : ""}`}
+                    onClick={handleBackspace}
+                  >
+                    ⌫
+                  </button>
+                </div>
+
+                <div className="scan-inline-actions">
+                  {canRemoveSelectedRow ? (
+                    <button type="button" className="outline-btn danger-btn" onClick={removeSelectedRow}>
+                      Remove Row
+                    </button>
+                  ) : (
+                    <div className="scan-inline-hint">Low-confidence rows stay highlighted until fixed.</div>
+                  )}
+                  <button type="button" onClick={applyEditorFix} disabled={!canApplyEditorFix || saving}>
+                    Apply Fix
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+
+      {lastSavedTicketId ? (
+        <div className="ticket-save-feedback fast-save-feedback">
+          <div>
+            <strong>Ticket #{lastSavedTicketId} saved</strong>
+            <span>
+              {lastSavedTicket
+                ? `${lastSavedTicket.drawTime} | ${lastSavedTicket.date} | ${formatCurrency(lastSavedTicket.total)}`
+                : "Ready for the next ticket."}
+            </span>
+          </div>
+          <div className="ticket-save-feedback-actions">
+            <button type="button" className="outline-btn" onClick={onPrintSavedTicket}>
+              Print Ticket
+            </button>
+            <button type="button" className="outline-btn" onClick={onDismissSavedTicket}>
+              Hide
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
-
-  if (!isOpen || typeof document === "undefined") {
-    return null;
-  }
-
-  return createPortal(modalContent, document.body);
 }

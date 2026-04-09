@@ -164,16 +164,29 @@ function setInputValue(element, value) {
   element.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-function setTextareaValue(element, value) {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
-  descriptor.set.call(element, value);
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
 function setSelectValue(element, value) {
   const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
   descriptor.set.call(element, value);
   element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+async function clickButton(button) {
+  await act(async () => {
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+function findButtonByText(container, text) {
+  return Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent.trim() === text
+  );
+}
+
+function findButtonContainingText(container, text) {
+  return Array.from(container.querySelectorAll("button")).find((button) =>
+    button.textContent.includes(text)
+  );
 }
 
 beforeEach(() => {
@@ -290,8 +303,41 @@ test("renders seller panel with seller session", async () => {
 
   expect(container.textContent).toContain("Seller Panel");
   expect(container.textContent).toContain("Create New Ticket");
-  expect(container.textContent).toContain("Tap a number, type qty, save fast.");
-  expect(container.textContent).not.toContain("Scan Entry");
+  expect(container.textContent).toContain("Manual Entry");
+  expect(container.textContent).toContain("Scanner Entry");
+  expect(container.textContent).toContain(
+    "Tap only. Number completes first and quantity follows automatically."
+  );
+  expect(container.textContent).toContain("Save Entry");
+  await unmountApp(root);
+});
+
+test("switches new ticket view from manual entry to scanner entry", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const scannerEntryButton = findButtonContainingText(container, "Scanner Entry");
+
+  expect(scannerEntryButton).toBeTruthy();
+  await clickButton(scannerEntryButton);
+
+  expect(container.textContent).toContain("Auto-detect ticket rows, fix only the doubtful ones, then save directly.");
+  expect(container.textContent).toContain("Camera Capture");
+  expect(container.textContent).toContain("Gallery Upload");
+  expect(container.textContent).toContain("WhatsApp Image");
+  expect(container.textContent).toContain("Confidence Engine");
   await unmountApp(root);
 });
 
@@ -498,7 +544,7 @@ test("moves expired draw booking to the next day", async () => {
   const root = await renderApp(container);
   const bookingDateInput = container.querySelector('input[type="date"]');
 
-  expect(container.textContent).toContain("Booking For: 2026-04-07");
+  expect(container.textContent).toContain("Booking For:2026-04-07");
   expect(bookingDateInput.value).toBe("2026-04-07");
   await unmountApp(root);
 });
@@ -535,7 +581,7 @@ test("moves 1 PM ticket to next day after 12:58 PM cutoff", async () => {
   const root = await renderApp(container);
   const bookingDateInput = container.querySelector('input[type="date"]');
 
-  expect(container.textContent).toContain("Booking For: 2026-04-07");
+  expect(container.textContent).toContain("Booking For:2026-04-07");
   expect(bookingDateInput.value).toBe("2026-04-07");
   await unmountApp(root);
 });
@@ -574,7 +620,7 @@ test("clamps seller booking date to only tomorrow when a later future date is st
 
   expect(bookingDateInput.value).toBe("2026-04-07");
   expect(bookingDateInput.max).toBe("2026-04-07");
-  expect(container.textContent).toContain("Booking For: 2026-04-07");
+  expect(container.textContent).toContain("Booking For:2026-04-07");
   await unmountApp(root);
 });
 
@@ -701,42 +747,32 @@ test("shows print option after saving a new ticket", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const ticketDetailsButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Ticket Details"
-  );
+  const digitOneButton = container.querySelector('button[aria-label="Digit 1"]');
+  const saveEntryButton = findButtonByText(container, "Save Entry");
 
+  await clickButton(digitOneButton);
+  await clickButton(digitOneButton);
+  await clickButton(saveEntryButton);
   await act(async () => {
-    ticketDetailsButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  const juriTextarea = container.querySelector('textarea[placeholder="45-5, 88-5, 04-10"]');
+  const saveTicketButton = findButtonByText(container, "Save Ticket");
 
+  expect(saveTicketButton).toBeTruthy();
+  expect(saveTicketButton.disabled).toBe(false);
+
+  await clickButton(saveTicketButton);
   await act(async () => {
-    setTextareaValue(juriTextarea, "12-1");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  const saveTicketButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Save Ticket"
-  );
-
-  await act(async () => {
-    saveTicketButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   expect(container.textContent).toContain("saved");
   expect(container.textContent).toContain("Print Ticket");
 
-  const printTicketButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Print Ticket"
-  );
+  const printTicketButton = findButtonByText(container, "Print Ticket");
 
-  await act(async () => {
-    printTicketButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await clickButton(printTicketButton);
 
   expect(window.open).toHaveBeenCalled();
   expect(mockPrintWindow.document.write).toHaveBeenCalled();
@@ -762,105 +798,35 @@ test("adds duplicate fast-entry values into the same house and juri rows", async
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const thirdDigitThree = container.querySelector('button[aria-label="third digit 3 qty 0"]');
+  const digitOneButton = container.querySelector('button[aria-label="Digit 1"]');
+  const digitTwoButton = container.querySelector('button[aria-label="Digit 2"]');
+  const digitThreeButton = container.querySelector('button[aria-label="Digit 3"]');
+  const digitFiveButton = container.querySelector('button[aria-label="Digit 5"]');
+  const digitZeroButton = container.querySelector('button[aria-label="Digit 0"]');
+  const saveEntryButton = findButtonByText(container, "Save Entry");
   const juriModeButton = container.querySelector('button[aria-label="Juri"]');
 
-  await act(async () => {
-    thirdDigitThree.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await clickButton(digitThreeButton);
+  await clickButton(digitFiveButton);
+  await clickButton(saveEntryButton);
 
-  let quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
+  expect(container.textContent).toContain("3 × 5");
 
-  await act(async () => {
-    setInputValue(quantityInput, "5");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await clickButton(digitThreeButton);
+  await clickButton(digitTwoButton);
+  await clickButton(saveEntryButton);
 
-  expect(document.body.textContent).toContain("[3=5]");
+  expect(container.textContent).toContain("3 × 7");
 
-  await act(async () => {
-    quantityInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await clickButton(juriModeButton);
+  await clickButton(digitOneButton);
+  await clickButton(digitTwoButton);
+  await clickButton(digitOneButton);
+  await clickButton(digitZeroButton);
+  await clickButton(saveEntryButton);
 
-  expect(container.textContent).toContain("1 row | Qty 5");
-
-  await act(async () => {
-    thirdDigitThree.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
-
-  await act(async () => {
-    setInputValue(quantityInput, "2");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(document.body.textContent).toContain("[3=7]");
-
-  await act(async () => {
-    const saveFixButton = Array.from(document.body.querySelectorAll("button")).find(
-      (button) => button.textContent === "Save Fix"
-    );
-    saveFixButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(container.textContent).toContain("1 row | Qty 7");
-
-  await act(async () => {
-    juriModeButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  const addJuriRowButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Add Juri Row"
-  );
-
-  await act(async () => {
-    addJuriRowButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  let juriNumberInput = document.body.querySelector('.fast-qty-modal input[type="text"]:not([readonly])');
-  quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
-
-  expect(juriNumberInput.value).toBe("");
-
-  await act(async () => {
-    setInputValue(juriNumberInput, "1");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(juriNumberInput.value).toBe("1");
-
-  await act(async () => {
-    setInputValue(juriNumberInput, "12");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(juriNumberInput.value).toBe("12");
-
-  await act(async () => {
-    setInputValue(quantityInput, "10");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(document.body.textContent).toContain("[12-10]");
-
-  await act(async () => {
-    const saveFixButton = Array.from(document.body.querySelectorAll("button")).find(
-      (button) => button.textContent === "Save Fix"
-    );
-    saveFixButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  expect(container.textContent).toContain("12-10");
-  expect(container.textContent).toContain("1 row | Qty 7");
-  expect(container.textContent).toContain("1 row | Qty 10");
+  expect(container.textContent).toContain("12 × 10");
+  expect(container.textContent).toContain("Total₹177.00");
 
   await unmountApp(root);
 });
