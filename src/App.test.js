@@ -815,14 +815,22 @@ test("adds duplicate fast-entry values into the same house and juri rows", async
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  const juriNumberTwelve = container.querySelector('button[aria-label="juri number 12 qty 0"]');
+  const addJuriRowButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Add Juri Row"
+  );
 
   await act(async () => {
-    juriNumberTwelve.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    addJuriRowButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  let juriNumberInput = document.body.querySelector('.fast-qty-modal input[type="text"]:not([readonly])');
   quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
+
+  await act(async () => {
+    setInputValue(juriNumberInput, "12");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
   await act(async () => {
     setInputValue(quantityInput, "10");
