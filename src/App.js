@@ -23,6 +23,7 @@ import LoginScreen from "./components/LoginScreen.js";
 import AdminPanel from "./components/AdminPanel.js";
 import MasterPanel from "./components/MasterPanel.js";
 import SellerFastEntryBoard from "./components/SellerFastEntryBoard.js";
+import TicketFormat from "./components/TicketFormat.js";
 import {
   PANEL_SESSION_KEY,
   SELLER_LIST_KEY,
@@ -393,6 +394,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       commission,
     };
   }, [previewItems]);
+  const draftTicketLayout = useMemo(() => buildTicketLayout(previewItems), [previewItems]);
 
   const effectivePaidAmount = useMemo(() => {
     const numeric = sanitizeNumber(paidAmount);
@@ -1003,15 +1005,45 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       return;
     }
 
+    openTicketPrintWindow(buildTicketPrintMarkup(ticket, buildTicketLayout(ticket.items)));
+  };
+
+  const printDraftTicket = () => {
+    if (previewItems.length === 0) {
+      window.alert("Enter at least one ticket row before printing.");
+      return;
+    }
+
+    openTicketPrintWindow(
+      buildTicketPrintMarkup(
+        {
+          id: "Draft",
+          customerName: customerName.trim() || "Walk-in Customer",
+          customerPhone: customerPhone.trim(),
+          date: effectiveTicketDate,
+          drawTime,
+          paymentMode,
+          total: previewSummary.total,
+          paidAmount: effectivePaidAmount,
+          dueAmount: currentDue,
+        },
+        draftTicketLayout,
+        {
+          documentTitle: "Draft Ticket",
+          sheetTitle: "Ticket Preview",
+          ticketLabel: "Draft Ticket",
+        }
+      )
+    );
+  };
+
+  const openTicketPrintWindow = (printMarkup) => {
     const printWindow = window.open("", "_blank", "width=420,height=720");
 
     if (!printWindow) {
       window.alert("Allow pop-up to print ticket");
       return;
     }
-
-    const ticketLayout = buildTicketLayout(ticket.items);
-    const printMarkup = buildTicketPrintMarkup(ticket, ticketLayout);
 
     printWindow.document.open();
     printWindow.document.write(printMarkup);
@@ -1304,6 +1336,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   setPaidAmount(nextValue.replace(/[^\d]/g, ""))
                 }
                 onPaymentModeChange={setPaymentMode}
+                onPrintDraft={printDraftTicket}
                 onPrintSavedTicket={() => printTicket(lastSavedTicketId)}
                 onReset={clearForm}
                 onSave={createTicket}
@@ -1312,6 +1345,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 parsedJuri={parsedJuri}
                 paymentMode={paymentMode}
                 previewItems={previewItems}
+                previewLayout={draftTicketLayout}
                 previewSummary={previewSummary}
                 third={third}
                 ticketActionNotice={ticketActionNotice}
@@ -1811,56 +1845,6 @@ function PreviewBox({ label, value }) {
   );
 }
 
-function TicketFormat({ layout, compact = false }) {
-  if (!layout.pairedRows.length && !layout.juriLines.length) {
-    return null;
-  }
-
-  return (
-    <div className={`ticket-format ${compact ? "compact-ticket-format" : ""}`}>
-      <div className="ticket-format-grid">
-        <div className="ticket-format-head">3rd</div>
-        <div className="ticket-format-head">4th</div>
-        {layout.pairedRows.length === 0 ? (
-          <>
-            <div className="ticket-format-cell empty-ticket-cell">--</div>
-            <div className="ticket-format-cell empty-ticket-cell">--</div>
-          </>
-        ) : (
-          layout.pairedRows.map((row, index) => (
-            <React.Fragment key={`ticket-row-${index}`}>
-              <div className={`ticket-format-cell ${!row.third ? "empty-ticket-cell" : ""}`}>
-                {row.third || "--"}
-              </div>
-              <div className={`ticket-format-cell ${!row.fourth ? "empty-ticket-cell" : ""}`}>
-                {row.fourth || "--"}
-              </div>
-            </React.Fragment>
-          ))
-        )}
-      </div>
-
-      {layout.juriLines.length > 0 ? (
-        <div className="ticket-juri-block">
-          <div className="ticket-format-head full-width-head">Juri</div>
-          {layout.juriLines.map((line) => (
-            <div key={line} className="ticket-juri-line">
-              {line}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {!compact ? (
-        <div className="ticket-print-preview">
-          <span>Ticket Print Format</span>
-          <pre>{layout.printText}</pre>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function parseJuriInput(input, commissionSettings) {
   const parsed = parseFastJuriText(input);
 
@@ -2204,9 +2188,12 @@ function padPrintColumn(value, pad = true) {
   return pad ? rightPad(String(value), 12, " ") : String(value);
 }
 
-function buildTicketPrintMarkup(ticket, layout) {
+function buildTicketPrintMarkup(ticket, layout, options = {}) {
+  const ticketLabel = options.ticketLabel || `Ticket #${ticket.id}`;
+  const documentTitle = options.documentTitle || ticketLabel;
+  const sheetTitle = options.sheetTitle || "Customer Ticket";
   const lines = [
-    `Ticket #${ticket.id}`,
+    ticketLabel,
     `Customer: ${ticket.customerName || "Walk-in Customer"}`,
     `Phone: ${ticket.customerPhone || "--"}`,
     `Date: ${ticket.date}`,
@@ -2223,7 +2210,7 @@ function buildTicketPrintMarkup(ticket, layout) {
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Ticket #${escapeHtml(String(ticket.id))}</title>
+    <title>${escapeHtml(documentTitle)}</title>
     <style>
       body {
         margin: 0;
@@ -2252,7 +2239,7 @@ function buildTicketPrintMarkup(ticket, layout) {
   </head>
   <body>
     <div class="ticket-sheet">
-      <h1>Customer Ticket</h1>
+      <h1>${escapeHtml(sheetTitle)}</h1>
       <pre>${escapeHtml(lines.join("\n"))}</pre>
     </div>
   </body>

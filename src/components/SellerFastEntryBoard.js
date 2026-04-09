@@ -7,6 +7,7 @@ import {
   sanitizeFastQuantity,
   upsertJuriText,
 } from "../untils/fastEntry.js";
+import TicketFormat from "./TicketFormat.js";
 
 const BLOCKED_QUANTITY_KEYS = new Set(["e", "E", "+", "-"]);
 const JURI_GRID_VALUES = Array.from({ length: 100 }, (_, index) => String(index).padStart(2, "0"));
@@ -101,6 +102,7 @@ export default function SellerFastEntryBoard({
   onJuriTextChange,
   onPaidAmountChange,
   onPaymentModeChange,
+  onPrintDraft,
   onPrintSavedTicket,
   onReset,
   onSave,
@@ -109,6 +111,7 @@ export default function SellerFastEntryBoard({
   parsedJuri,
   paymentMode,
   previewItems,
+  previewLayout,
   previewSummary,
   third,
   ticketActionNotice,
@@ -190,6 +193,12 @@ export default function SellerFastEntryBoard({
   const activeHouseEntries = activeHouse === "fourth" ? fourthEntries : thirdEntries;
   const activeHouseQty = activeHouse === "fourth" ? fourthQty : thirdQty;
   const activeHouseLabel = activeHouse === "fourth" ? "4TH HOUSE" : "3RD HOUSE";
+  const activeModeQty = activeEntryMode === "juri" ? juriQty : activeHouseQty;
+  const activeModeRows = activeEntryMode === "juri" ? parsedJuriList.entries.length : activeHouseEntries.length;
+  const activeModePreviewRows =
+    activeEntryMode === "juri"
+      ? parsedJuriList.entries.map((entry) => `${entry.num}-${entry.qty}`)
+      : activeHouseEntries.map((item) => `${item.digit}=${item.qty}`);
 
   const updateSingleQuantity = (house, digit, qty) => {
     const setter = house === "third" ? onThirdChange : onFourthChange;
@@ -457,154 +466,185 @@ export default function SellerFastEntryBoard({
           </div>
         ) : null}
 
-        <div className="fast-mode-strip" aria-label="Fast ticket entry mode">
-          <ModeButton
-            active={activeEntryMode === "third"}
-            label="3rd House"
-            hint={`${thirdEntries.length} row | Qty ${thirdQty}`}
-            onClick={() => onActiveEntryModeChange("third")}
-          />
-          <ModeButton
-            active={activeEntryMode === "fourth"}
-            label="4th House"
-            hint={`${fourthEntries.length} row | Qty ${fourthQty}`}
-            onClick={() => onActiveEntryModeChange("fourth")}
-          />
-          <ModeButton
-            active={activeEntryMode === "juri"}
-            label="Juri"
-            hint={`${parsedJuriList.entries.length} row | Qty ${juriQty}`}
-            onClick={() => onActiveEntryModeChange("juri")}
-          />
+        <div className="fast-entry-mode-toolbar">
+          <div className="fast-mode-strip" aria-label="Fast ticket entry mode">
+            <ModeButton
+              active={activeEntryMode === "third"}
+              label="3rd House"
+              hint={`${thirdEntries.length} row | Qty ${thirdQty}`}
+              onClick={() => onActiveEntryModeChange("third")}
+            />
+            <ModeButton
+              active={activeEntryMode === "fourth"}
+              label="4th House"
+              hint={`${fourthEntries.length} row | Qty ${fourthQty}`}
+              onClick={() => onActiveEntryModeChange("fourth")}
+            />
+            <ModeButton
+              active={activeEntryMode === "juri"}
+              label="Juri"
+              hint={`${parsedJuriList.entries.length} row | Qty ${juriQty}`}
+              onClick={() => onActiveEntryModeChange("juri")}
+            />
+          </div>
+
+          <button
+            type="button"
+            className="outline-btn fast-entry-print-btn"
+            onClick={onPrintDraft}
+            disabled={previewItems.length === 0}
+          >
+            Print Preview
+          </button>
         </div>
 
-        {activeEntryMode === "juri" ? (
-          <div className="fast-entry-panel glass-panel">
-            <div className="fast-entry-panel-head">
-              <div>
-                <strong>JURI</strong>
-                <span>Tap any pair, type qty, save.</span>
+        <div className="fast-entry-workspace">
+          {activeEntryMode === "juri" ? (
+            <div className="fast-entry-panel glass-panel">
+              <div className="fast-entry-panel-head">
+                <div>
+                  <strong>JURI PAGE</strong>
+                  <span>Tap any pair, type quantity, then save that row.</span>
+                </div>
+                <small>Rows {parsedJuriList.entries.length}</small>
               </div>
-              <small>Rows {parsedJuriList.entries.length}</small>
+
+              <div className="fast-entry-active-note">
+                <span>Total Qty</span>
+                <strong>{juriQty}</strong>
+                <small>
+                  {parsedJuriList.entries.length
+                    ? `${parsedJuriList.entries.length} saved row(s)`
+                    : "No juri rows yet."}
+                </small>
+              </div>
+
+              <div className="fast-juri-grid">
+                {JURI_GRID_VALUES.map((number) => {
+                  const qty = juriLookup[number] || 0;
+                  const isActive =
+                    entryModal.isOpen && entryModal.mode === "juri" && entryModal.number === number;
+
+                  return (
+                    <button
+                      key={number}
+                      type="button"
+                      aria-label={`juri number ${number} qty ${qty}`}
+                      className={`fast-juri-cell ${qty > 0 ? "filled" : ""} ${isActive ? "active" : ""}`}
+                      onClick={() => openEntryModal("juri", number)}
+                    >
+                      <span>{number}</span>
+                      <strong>{qty || 0}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {parsedJuriList.invalid.length > 0 ? (
+                <div className="fast-entry-error-line">
+                  Invalid rows ignored: {parsedJuriList.invalid.join(", ")}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="fast-entry-panel glass-panel">
+              <div className="fast-entry-panel-head">
+                <div>
+                  <strong>{activeHouseLabel} PAGE</strong>
+                  <span>Tap any digit, type quantity, then save that row.</span>
+                </div>
+                <small>Rows {activeHouseEntries.length}</small>
+              </div>
+
+              <div className="fast-entry-active-note">
+                <span>Total Qty</span>
+                <strong>{activeHouseQty}</strong>
+                <small>
+                  {activeHouseEntries.length
+                    ? `${activeHouseEntries.length} saved row(s)`
+                    : "No house rows yet."}
+                </small>
+              </div>
+
+              <div className="fast-house-grid">
+                {activeHouseValues.map((value, index) => {
+                  const isActive =
+                    entryModal.isOpen &&
+                    entryModal.mode === activeHouse &&
+                    entryModal.number === formatEntryNumber(activeHouse, index);
+
+                  return (
+                    <button
+                      key={`${activeHouse}-${index}`}
+                      type="button"
+                      aria-label={`${activeHouse} digit ${index} qty ${value || 0}`}
+                      className={`fast-house-cell ${Number(value || 0) > 0 ? "filled" : ""} ${
+                        isActive ? "active" : ""
+                      }`}
+                      onClick={() => openEntryModal(activeHouse, index)}
+                    >
+                      <span>{index}</span>
+                      <strong>{value || 0}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <aside className="fast-entry-preview-panel glass-panel">
+            <div className="fast-entry-preview-head">
+              <div>
+                <strong>Live Preview</strong>
+                <span>
+                  {getModeLabel(activeEntryMode)} | {effectiveTicketDate} | {drawLabel}
+                </span>
+              </div>
+              <small>{previewItems.length ? "Print ready" : "Waiting for rows"}</small>
             </div>
 
-            <div className="fast-entry-active-note">
-              <span>Total Qty</span>
-              <strong>{juriQty}</strong>
-              <small>{parsedJuriList.entries.length ? `${parsedJuriList.entries.length} saved row(s)` : "No juri rows yet."}</small>
+            <div className="fast-entry-preview-highlight">
+              <span>Current Page</span>
+              <strong>{getModeLabel(activeEntryMode)}</strong>
+              <small>
+                {activeModeRows} row(s) | Qty {activeModeQty}
+              </small>
             </div>
 
-            <div className="fast-entry-chip-grid">
-              {parsedJuriList.entries.length === 0 ? (
-                <div className="fast-entry-empty">No juri rows yet.</div>
+            <div className="fast-entry-preview-rows" aria-label="Current page rows">
+              {activeModePreviewRows.length > 0 ? (
+                activeModePreviewRows.map((row) => <span key={row}>{row}</span>)
               ) : (
-                parsedJuriList.entries.map((entry) => (
-                  <button
-                    key={`juri-chip-${entry.num}`}
-                    type="button"
-                    aria-label={`Juri ${entry.num} qty ${entry.qty}`}
-                    className={`fast-entry-chip ${
-                      entryModal.isOpen && entryModal.mode === "juri" && entryModal.number === entry.num ? "active" : ""
-                    }`}
-                    onClick={() => openEntryModal("juri", entry.num)}
-                  >
-                    {entry.num}-{entry.qty}
-                  </button>
-                ))
+                <small>No rows added on this page yet.</small>
               )}
             </div>
 
-            <div className="fast-juri-grid">
-              {JURI_GRID_VALUES.map((number) => {
-                const qty = juriLookup[number] || 0;
-                const isActive =
-                  entryModal.isOpen && entryModal.mode === "juri" && entryModal.number === number;
+            {previewItems.length > 0 ? (
+              <TicketFormat layout={previewLayout} compact />
+            ) : (
+              <div className="fast-entry-empty">Preview appears here while you enter ticket rows.</div>
+            )}
 
-                return (
-                  <button
-                    key={number}
-                    type="button"
-                    aria-label={`juri number ${number} qty ${qty}`}
-                    className={`fast-juri-cell ${qty > 0 ? "filled" : ""} ${isActive ? "active" : ""}`}
-                    onClick={() => openEntryModal("juri", number)}
-                  >
-                    <span>{number}</span>
-                    <strong>{qty || 0}</strong>
-                  </button>
-                );
-              })}
-            </div>
-
-            {parsedJuriList.invalid.length > 0 ? (
-              <div className="fast-entry-error-line">
-                Invalid rows ignored: {parsedJuriList.invalid.join(", ")}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="fast-entry-panel glass-panel">
-            <div className="fast-entry-panel-head">
+            <div className="fast-entry-preview-stats">
               <div>
-                <strong>{activeHouseLabel}</strong>
-                <span>Tap any digit, type qty, save.</span>
+                <span>Total</span>
+                <strong>{formatCurrency(previewSummary.total)}</strong>
               </div>
-              <small>Rows {activeHouseEntries.length}</small>
+              <div>
+                <span>Commission</span>
+                <strong>{formatCurrency(previewSummary.commission)}</strong>
+              </div>
+              <div>
+                <span>Items</span>
+                <strong>{previewItems.length}</strong>
+              </div>
+              <div>
+                <span>Due</span>
+                <strong>{formatCurrency(currentDue)}</strong>
+              </div>
             </div>
-
-            <div className="fast-entry-active-note">
-              <span>Total Qty</span>
-              <strong>{activeHouseQty}</strong>
-              <small>{activeHouseEntries.length ? `${activeHouseEntries.length} saved row(s)` : "No house rows yet."}</small>
-            </div>
-
-            <div className="fast-house-grid">
-              {activeHouseValues.map((value, index) => {
-                const isActive =
-                  entryModal.isOpen &&
-                  entryModal.mode === activeHouse &&
-                  entryModal.number === formatEntryNumber(activeHouse, index);
-
-                return (
-                  <button
-                    key={`${activeHouse}-${index}`}
-                    type="button"
-                    aria-label={`${activeHouse} digit ${index} qty ${value || 0}`}
-                    className={`fast-house-cell ${Number(value || 0) > 0 ? "filled" : ""} ${
-                      isActive ? "active" : ""
-                    }`}
-                    onClick={() => openEntryModal(activeHouse, index)}
-                  >
-                    <span>{index}</span>
-                    <strong>{value || 0}</strong>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="fast-entry-chip-grid">
-              {activeHouseEntries.length === 0 ? (
-                <div className="fast-entry-empty">No house rows yet.</div>
-              ) : (
-                activeHouseEntries.map((item) => (
-                  <button
-                    key={`${activeHouse}-chip-${item.digit}`}
-                    type="button"
-                    className={`fast-entry-chip ${
-                      entryModal.isOpen &&
-                      entryModal.mode === activeHouse &&
-                      entryModal.number === formatEntryNumber(activeHouse, item.digit)
-                        ? "active"
-                        : ""
-                    }`}
-                    onClick={() => openEntryModal(activeHouse, item.digit)}
-                  >
-                    {item.digit}={item.qty}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        )}
+          </aside>
+        </div>
 
         {lastSavedTicketId ? (
           <div className="ticket-save-feedback fast-save-feedback">
@@ -628,21 +668,6 @@ export default function SellerFastEntryBoard({
         ) : null}
 
         <div className="fast-entry-footer">
-          <div className="fast-entry-footer-summary">
-            <div>
-              <span>Total</span>
-              <strong>{formatCurrency(previewSummary.total)}</strong>
-            </div>
-            <div>
-              <span>Commission</span>
-              <strong>{formatCurrency(previewSummary.commission)}</strong>
-            </div>
-            <div>
-              <span>Items</span>
-              <strong>{previewItems.length}</strong>
-            </div>
-          </div>
-
           {showAdvanced ? (
             <div className="fast-entry-footer-meta">
               <span>Paid {formatCurrency(effectivePaidAmount)}</span>

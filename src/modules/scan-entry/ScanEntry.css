@@ -474,6 +474,26 @@ button.scan-review-row {
   text-transform: uppercase;
 }
 
+.scan-edit-preview {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(12, 26, 45, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+}
+
+.scan-edit-preview span,
+.scan-edit-preview small {
+  color: #9bd4ff;
+}
+
+.scan-edit-preview strong {
+  color: #f8fbff;
+  font-size: 1.32rem;
+  font-family: "SF Mono", "Courier New", monospace;
+}
+
 .scan-quick-actions {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
