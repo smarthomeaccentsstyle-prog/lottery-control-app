@@ -24,6 +24,7 @@ const {
   TicketScanValidationError,
   scanTicketFromImage,
 } = require("./lib/ticketScan");
+const { getOpenAiScanStatus } = require("./lib/openai");
 const {
   getDb,
   getStorageInfo,
@@ -67,10 +68,12 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && pathname === "/api/health") {
       const storage = getStorageInfo();
+      const scanStatus = getOpenAiScanStatus();
       return sendJson(res, 200, {
         ok: true,
         service: "lottery-control-backend",
         time: new Date().toISOString(),
+        scanStatus,
         storage: {
           mode: storage.usingExternalStorage ? "external" : "bundled",
           initializationMode: storage.initializationMode,
@@ -256,6 +259,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         sellers: db.sellers.map(toPublicSeller),
         settings: db.settings,
+        scanStatus: getOpenAiScanStatus(),
       });
     }
 
@@ -382,6 +386,15 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/scan-ticket" && req.method === "POST") {
       if (!ensureAuthenticated(res, authSession)) {
         return;
+      }
+
+      const scanStatus = getOpenAiScanStatus();
+
+      if (!scanStatus.available) {
+        return sendJson(res, 503, {
+          ok: false,
+          message: scanStatus.message || "Ticket scan is not configured on the server.",
+        });
       }
 
       const body = await readJsonBody(req);
@@ -798,6 +811,7 @@ migrateStoredCredentials();
 server.listen(PORT, HOST, () => {
   const db = getDb();
   const storage = getStorageInfo();
+  const scanStatus = getOpenAiScanStatus();
   console.log(`Lottery backend running on http://localhost:${PORT}`);
   getNetworkAddresses().forEach((address) => {
     console.log(`Lottery backend running on http://${address}:${PORT}`);
@@ -814,6 +828,11 @@ server.listen(PORT, HOST, () => {
     );
   } else {
     console.log("Persistent storage is active. Future code deploys will keep existing data.");
+  }
+  if (scanStatus.available) {
+    console.log(`Handwritten scan is enabled with model: ${scanStatus.model}`);
+  } else {
+    console.warn(`Handwritten scan is disabled: ${scanStatus.message}`);
   }
   console.log(`Loaded ${db.sellers.length} seller(s), ${db.tickets.length} ticket(s), ${db.results.length} result(s)`);
 });
