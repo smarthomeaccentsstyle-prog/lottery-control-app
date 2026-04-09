@@ -272,6 +272,16 @@ export default function ScanEntryFlow({
     });
     onClose();
   };
+  const editorPreviewNumber =
+    editorState.section === "juri"
+      ? editorState.number
+        ? String(editorState.number).padStart(2, "0")
+        : "--"
+      : editorState.number || "-";
+  const editorPreviewText =
+    editorState.section === "juri"
+      ? `[${editorPreviewNumber}-${editorState.quantity || 0}]`
+      : `[${editorPreviewNumber}=${editorState.quantity || 0}]`;
 
   const modalContent = (
     <div className="scan-entry-overlay" onClick={onClose}>
@@ -432,26 +442,13 @@ export default function ScanEntryFlow({
                 </label>
               </div>
 
-              <div className="scan-quick-actions">
-                {[
-                  { label: "+1", amount: 1 },
-                  { label: "+5", amount: 5 },
-                  { label: "+10", amount: 10 },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    className="outline-btn"
-                    onClick={() =>
-                      setEditorState((current) => ({
-                        ...current,
-                        quantity: String(Math.min(999, Number(current.quantity || 0) + item.amount)),
-                      }))
-                    }
-                  >
-                    {item.label}
-                  </button>
-                ))}
+              <div className="scan-edit-preview">
+                <span>Live</span>
+                <strong>{editorPreviewText}</strong>
+                <small>Preview updates while you type.</small>
+              </div>
+
+              <div className="scan-edit-actions">
                 <button
                   type="button"
                   className="outline-btn danger-btn"
@@ -462,11 +459,8 @@ export default function ScanEntryFlow({
                     }))
                   }
                 >
-                  CLEAR
+                  Clear
                 </button>
-              </div>
-
-              <div className="scan-edit-actions">
                 <button type="button" onClick={saveEditor}>
                   Save Fix
                 </button>
