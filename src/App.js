@@ -23,7 +23,6 @@ import LoginScreen from "./components/LoginScreen.js";
 import AdminPanel from "./components/AdminPanel.js";
 import MasterPanel from "./components/MasterPanel.js";
 import SellerFastEntryBoard from "./components/SellerFastEntryBoard.js";
-import ScanEntryFlow from "./modules/scan-entry/ScanEntryFlow.js";
 import {
   PANEL_SESSION_KEY,
   SELLER_LIST_KEY,
@@ -141,8 +140,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [lastSavedTicketId, setLastSavedTicketId] = useState(null);
   const [passwordForm, setPasswordForm] = useState(() => emptyPasswordChangeForm());
   const [passwordLoading, setPasswordLoading] = useState(false);
-  const [scanEntryOpen, setScanEntryOpen] = useState(false);
-  const [scanEntryNotice, setScanEntryNotice] = useState(null);
   const [ticketActionNotice, setTicketActionNotice] = useState(null);
   const [entryUiToken, setEntryUiToken] = useState(0);
   const sellerSyncRef = useRef({
@@ -185,12 +182,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     tickets,
     winResults,
   ]);
-
-  useEffect(() => {
-    if (activeTab !== "New Ticket") {
-      setScanEntryOpen(false);
-    }
-  }, [activeTab]);
 
   const canApplySellerSyncNow = useCallback(
     (forceApply = false) => {
@@ -699,43 +690,10 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setEditingTicketId(null);
     setPaymentMode("Paid");
     setPaidAmount("");
-    setScanEntryOpen(false);
-    setScanEntryNotice(null);
     setTicketActionNotice(null);
     setLastSavedTicketId(null);
     setEntryUiToken((current) => current + 1);
   };
-
-  const applyScanEntryDraft = useCallback(
-    (scanDraft) => {
-      const nextThird = normalizeSingleDraft(scanDraft.third);
-      const nextFourth = normalizeSingleDraft(scanDraft.fourth);
-      const nextJuriText = typeof scanDraft.juriText === "string" ? scanDraft.juriText : "";
-
-      setThird(nextThird);
-      setFourth(nextFourth);
-      setJuriText(nextJuriText);
-      setLastSavedTicketId(null);
-      setTicketActionNotice(null);
-      setActiveEntryMode(
-        nextThird.some(Boolean)
-          ? "third"
-          : nextFourth.some(Boolean)
-            ? "fourth"
-            : nextJuriText
-              ? "juri"
-              : activeEntryMode
-      );
-      setEntryUiToken((current) => current + 1);
-      setScanEntryNotice({
-        tone: scanDraft.safeOnly ? "warning" : "success",
-        message: scanDraft.safeOnly
-          ? `${scanDraft.appliedRows.length} scanned row(s) filled. ${scanDraft.skippedRows.length} low-confidence row(s) need a quick check.`
-          : `${scanDraft.appliedRows.length} scanned row(s) filled into the current ticket.`,
-      });
-    },
-    [activeEntryMode]
-  );
 
   const createTicket = async () => {
     if (previewItems.length === 0) {
@@ -960,8 +918,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       formState.third.some(Boolean) ? "third" : formState.fourth.some(Boolean) ? "fourth" : "juri"
     );
     setTicketActionNotice(null);
-    setScanEntryNotice(null);
-    setScanEntryOpen(false);
     setEntryUiToken((current) => current + 1);
     setActiveTab("New Ticket");
   };
@@ -1344,7 +1300,6 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 }}
                 onFourthChange={setFourth}
                 onJuriTextChange={setJuriText}
-                onOpenScan={() => setScanEntryOpen(true)}
                 onPaidAmountChange={(nextValue) =>
                   setPaidAmount(nextValue.replace(/[^\d]/g, ""))
                 }
@@ -1358,20 +1313,11 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 paymentMode={paymentMode}
                 previewItems={previewItems}
                 previewSummary={previewSummary}
-                scanEntryNotice={scanEntryNotice}
                 third={third}
                 ticketActionNotice={ticketActionNotice}
                 todayString={todayString}
               />
             </div>
-
-            <ScanEntryFlow
-              isOpen={scanEntryOpen}
-              bookingDate={effectiveTicketDate}
-              drawLabel={formatDrawTime(drawTime)}
-              onApply={applyScanEntryDraft}
-              onClose={() => setScanEntryOpen(false)}
-            />
           </>
         )}
 

@@ -290,7 +290,8 @@ test("renders seller panel with seller session", async () => {
 
   expect(container.textContent).toContain("Seller Panel");
   expect(container.textContent).toContain("Create New Ticket");
-  expect(container.textContent).toContain("Scan Entry");
+  expect(container.textContent).toContain("Tap a number, type qty, save fast.");
+  expect(container.textContent).not.toContain("Scan Entry");
   await unmountApp(root);
 });
 
@@ -763,18 +764,23 @@ test("adds duplicate fast-entry values into the same house and juri rows", async
   const root = await renderApp(container);
   const thirdDigitThree = container.querySelector('button[aria-label="third digit 3 qty 0"]');
   const juriModeButton = container.querySelector('button[aria-label="Juri"]');
-  const keyOne = container.querySelector('button[aria-label="Keypad 1"]');
-  const keyTwo = container.querySelector('button[aria-label="Keypad 2"]');
-  const keyFive = container.querySelector('button[aria-label="Keypad 5"]');
-  const keyZero = container.querySelector('button[aria-label="Keypad 0"]');
 
   await act(async () => {
     thirdDigitThree.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  let quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
+
   await act(async () => {
-    keyFive.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    setInputValue(quantityInput, "5");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(document.body.textContent).toContain("[3=5]");
+
+  await act(async () => {
+    quantityInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
@@ -785,8 +791,20 @@ test("adds duplicate fast-entry values into the same house and juri rows", async
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
+
   await act(async () => {
-    keyTwo.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    setInputValue(quantityInput, "2");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(document.body.textContent).toContain("[3=7]");
+
+  await act(async () => {
+    const saveFixButton = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent === "Save Fix"
+    );
+    saveFixButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
@@ -797,27 +815,27 @@ test("adds duplicate fast-entry values into the same house and juri rows", async
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  const juriKeyOne = container.querySelector('button[aria-label="Keypad 1"]');
-  const juriKeyTwo = container.querySelector('button[aria-label="Keypad 2"]');
-  const juriKeyZero = container.querySelector('button[aria-label="Keypad 0"]');
+  const juriNumberTwelve = container.querySelector('button[aria-label="juri number 12 qty 0"]');
 
   await act(async () => {
-    juriKeyOne.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    juriNumberTwelve.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  quantityInput = document.body.querySelector('.fast-qty-modal input[type="number"]');
+
   await act(async () => {
-    juriKeyTwo.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    setInputValue(quantityInput, "10");
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  await act(async () => {
-    juriKeyOne.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  expect(document.body.textContent).toContain("[12-10]");
 
   await act(async () => {
-    juriKeyZero.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const saveFixButton = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent === "Save Fix"
+    );
+    saveFixButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 

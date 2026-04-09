@@ -1,0 +1,36 @@
+{
+  "master": {
+    "username": "krishna",
+    "password": "scrypt$d5b0d55d022f86046dc73b8d5b0fd907$3f3e78a3b438ab0af58767698e0c85a953eed203f20da8cad17617b14aa03d48ed3974227b5aa3f3a5f4898dbcd490fc07829e1e9c86ff7db07c048154c9708f"
+  },
+  "admin": {
+    "username": "saikat",
+    "password": "scrypt$4f3e6b9f5e2d8a2829cbdcd05a32f82f$feb710784a9da95ced8dc81db99efd68ecd2db539a9ea8ef045f09f62178f1274cfa682849a998ad5f48113d0c913a101819fe246637429d51e39a32da7b734a"
+  },
+  "sellers": [
+    {
+      "id": 1,
+      "name": "Seller One",
+      "mobile": "",
+      "username": "seller1",
+      "password": "scrypt$686bcb8fd9a3a370199ba04ba9626231$91bc5770ae1b9ac37066fc7f79b3f2a8c33d3d1e5202eacc720ae796c2f80dfe6432de97086d7f839dbd6c943ad2cb527e409da7bba8c6db3b8fd8079ced82c6",
+      "active": true,
+      "singleCommission": 0.9,
+      "juriCommission": 2.65
+    }
+  ],
+  "tickets": [],
+  "results": [],
+  "settings": {
+    "commission": {
+      "single": 0.9,
+      "juri": 2.65
+    },
+    "rates": {
+      "singleSell": 11,
+      "singlePayout": 100,
+      "juriSell": 10,
+      "juriPayout": 600
+    }
+  }
+}

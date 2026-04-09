@@ -3324,7 +3324,7 @@ textarea::placeholder {
 .fast-entry-panel {
   padding: 16px;
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .fast-entry-panel-head {
@@ -3351,9 +3351,9 @@ textarea::placeholder {
 
 .fast-entry-active-note {
   border-radius: 18px;
-  padding: 14px;
+  padding: 12px 14px;
   display: grid;
-  gap: 4px;
+  gap: 2px;
   background: rgba(8, 47, 73, 0.34);
   border: 1px solid rgba(56, 189, 248, 0.2);
 }
@@ -3364,88 +3364,77 @@ textarea::placeholder {
 }
 
 .fast-entry-active-note strong {
-  font-size: 1.2rem;
+  font-size: 1.36rem;
   color: #f8fafc;
 }
 
 .fast-house-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .fast-house-cell,
-.fast-juri-stage-card,
-.fast-entry-chip,
-.fast-entry-shortcut,
-.fast-entry-key {
+.fast-juri-cell,
+.fast-entry-chip {
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 18px;
   background: rgba(15, 23, 42, 0.8);
   color: #f8fafc;
 }
 
-.fast-house-cell {
-  min-height: 84px;
-  padding: 10px 8px;
+.fast-house-cell,
+.fast-juri-cell {
+  min-height: 74px;
+  padding: 8px 6px;
   display: grid;
   gap: 4px;
   align-content: center;
   justify-items: center;
 }
 
-.fast-house-cell span {
+.fast-house-cell span,
+.fast-juri-cell span {
   color: #94a3b8;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
 }
 
-.fast-house-cell strong {
-  font-size: 1.18rem;
+.fast-house-cell strong,
+.fast-juri-cell strong {
+  font-size: 1.12rem;
 }
 
-.fast-house-cell.filled {
+.fast-house-cell.filled,
+.fast-juri-cell.filled {
   border-color: rgba(45, 212, 191, 0.24);
   background: rgba(13, 148, 136, 0.12);
 }
 
 .fast-house-cell.active,
-.fast-juri-stage-card.active,
+.fast-juri-cell.active,
 .fast-entry-chip.active {
   border-color: rgba(96, 165, 250, 0.42);
   box-shadow: 0 10px 24px rgba(30, 64, 175, 0.24);
   background: rgba(30, 41, 59, 0.96);
 }
 
-.fast-juri-stage {
+.fast-juri-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.fast-juri-stage-card {
-  min-height: 76px;
-  padding: 12px 14px;
-  display: grid;
-  gap: 5px;
-  text-align: left;
-}
-
-.fast-juri-stage-card span {
-  color: #94a3b8;
-}
-
-.fast-juri-stage-card strong {
-  font-size: 1.26rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .fast-entry-chip-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .fast-entry-chip {
-  padding: 10px 12px;
+  padding: 9px 12px;
   font-weight: 700;
 }
 
@@ -3467,44 +3456,123 @@ textarea::placeholder {
   color: #fca5a5;
 }
 
-.fast-entry-keypad-shell {
-  display: grid;
-  gap: 10px;
-}
-
-.fast-entry-shortcuts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.fast-entry-shortcut {
-  min-height: 52px;
-  padding: 10px 12px;
-}
-
-.fast-entry-keypad {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.fast-entry-key {
-  min-height: 62px;
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.fast-entry-key.warning {
-  color: #fde68a;
-}
-
-.fast-entry-key.danger {
-  color: #fecaca;
-}
-
 .fast-save-feedback {
   margin-bottom: 4px;
+}
+
+.fast-qty-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+  background: rgba(2, 6, 23, 0.66);
+  backdrop-filter: blur(10px);
+}
+
+.fast-qty-modal {
+  width: min(100%, 380px);
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 24px;
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  background:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.14), transparent 48%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98));
+  box-shadow: 0 24px 56px rgba(2, 6, 23, 0.44);
+}
+
+.fast-qty-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.fast-qty-modal-head span {
+  color: #bfdbfe;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.fast-qty-modal-preview {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(8, 47, 73, 0.34);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+}
+
+.fast-qty-modal-preview span,
+.fast-qty-modal-preview small {
+  color: #93c5fd;
+}
+
+.fast-qty-modal-preview strong {
+  color: #f8fafc;
+  font-size: 1.52rem;
+  line-height: 1.1;
+}
+
+.fast-qty-modal-form {
+  display: grid;
+  gap: 12px;
+}
+
+.fast-qty-field {
+  display: grid;
+  gap: 6px;
+}
+
+.fast-qty-field span {
+  color: #94a3b8;
+  font-size: 0.82rem;
+}
+
+.fast-qty-field input {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.82);
+  color: #f8fafc;
+  padding: 14px 16px;
+}
+
+.fast-qty-field input[readonly] {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #dbeafe;
+}
+
+.fast-qty-field-large input {
+  min-height: 74px;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.fast-qty-field input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.fast-qty-field input[type="number"]::-webkit-outer-spin-button,
+.fast-qty-field input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.fast-qty-modal-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fast-qty-modal-actions button {
+  min-height: 52px;
 }
 
 .fast-entry-footer {
@@ -3591,13 +3659,9 @@ textarea::placeholder {
     gap: 8px;
   }
 
-  .fast-house-cell {
-    min-height: 74px;
-    padding: 8px 6px;
-  }
-
-  .fast-entry-key {
-    min-height: 56px;
+  .fast-house-cell,
+  .fast-juri-cell {
+    min-height: 68px;
   }
 
   .fast-mode-strip,
@@ -3613,5 +3677,20 @@ textarea::placeholder {
 
   .fast-entry-footer-actions {
     grid-template-columns: 1fr 1.2fr;
+  }
+
+  .fast-qty-modal {
+    border-radius: 22px;
+  }
+
+  .fast-qty-modal-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 680px) {
+  .fast-qty-modal-overlay {
+    align-items: center;
+    padding-bottom: 14px;
   }
 }
