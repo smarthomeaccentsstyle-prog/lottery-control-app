@@ -8,6 +8,12 @@ import {
 } from "../untils/ticketScan.js";
 
 const SECTION_ORDER = ["thirdHouse", "fourthHouse", "unassignedHouse", "juri"];
+const QUICK_MOVE_LABELS = {
+  thirdHouse: "To 3rd",
+  fourthHouse: "To 4th",
+  unassignedHouse: "Unassigned",
+  juri: "To Juri",
+};
 
 function ScanReviewSection({
   invalidById,
@@ -83,6 +89,19 @@ function ScanReviewSection({
                     ))}
                   </select>
                 </label>
+
+                <div className="seller-entry-scan-move-row">
+                  {SECTION_ORDER.filter((option) => option !== row.section).map((option) => (
+                    <button
+                      key={`${row.id}-${option}`}
+                      type="button"
+                      className="seller-entry-scan-move-btn"
+                      onClick={() => onRowChange(row.id, "section", option)}
+                    >
+                      {QUICK_MOVE_LABELS[option]}
+                    </button>
+                  ))}
+                </div>
 
                 <button
                   type="button"

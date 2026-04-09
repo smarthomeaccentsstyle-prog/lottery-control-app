@@ -62,11 +62,22 @@ export async function createTicketApi(payload) {
 }
 
 export async function scanTicketApi(payload) {
-  const response = await apiRequest("/scan-ticket", {
-    method: "POST",
-    body: payload,
-  });
-  return response;
+  try {
+    const response = await apiRequest("/scan-ticket", {
+      method: "POST",
+      body: payload,
+      timeoutMs: 90000,
+      timeoutMessage:
+        "Ticket scan took too long. Try again with a clearer image or a smaller photo.",
+    });
+    return response;
+  } catch (error) {
+    if (error && error.message === BACKEND_TIMEOUT_MESSAGE) {
+      throw new Error("Ticket scan took too long. Try again with a clearer image or a smaller photo.");
+    }
+
+    throw error;
+  }
 }
 
 export async function updateTicketApi(id, payload) {
@@ -156,11 +167,15 @@ async function apiRequest(pathname, options = {}) {
   const controller =
     typeof AbortController === "function" ? new AbortController() : null;
   let timeoutId = null;
+  const timeoutMs =
+    typeof options.timeoutMs === "number" && options.timeoutMs > 0
+      ? options.timeoutMs
+      : REQUEST_TIMEOUT_MS;
 
   if (controller && typeof globalThis.setTimeout === "function") {
     timeoutId = globalThis.setTimeout(() => {
       controller.abort();
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
   }
 
   let response;
@@ -178,7 +193,7 @@ async function apiRequest(pathname, options = {}) {
     });
   } catch (error) {
     if (error && error.name === "AbortError") {
-      throw new Error(BACKEND_TIMEOUT_MESSAGE);
+      throw new Error(options.timeoutMessage || BACKEND_TIMEOUT_MESSAGE);
     }
 
     throw new Error(BACKEND_UNAVAILABLE_MESSAGE);

@@ -175,14 +175,58 @@ Important reminders:
 - Include all valid clusters found on the page.
 `.trim();
 
+const FALLBACK_EXTRACTION_INSTRUCTIONS = `
+You are doing a second-pass rescue extraction on a messy handwritten seller ticket image.
+
+Focus on finding every plausible handwritten row that matches:
+- one digit + "-" + qty  => house candidate
+- two digits + "-" + qty => juri candidate
+
+Do not force thirdHouse or fourthHouse assignment unless the side is clearly visible.
+If unsure about house side, use sideHint "unknown" or "center" and let normalization place it in unassignedHouse.
+Ignore dates, session text, names, decorative words, and headings.
+Preserve leading zeros exactly for juri.
+Return valid JSON only and prefer partial safe extraction over hallucination.
+`.trim();
+
 async function scanTicketFromImage({ imageDataUrl, fileName = "" } = {}) {
   const parsedImage = parseImageDataUrl(imageDataUrl);
   const preparedImages = await preprocessImageForScan(parsedImage);
+  const primaryParsed = await requestTicketScanExtraction({
+    fileName,
+    images: preparedImages,
+    instructions: EXTRACTION_INSTRUCTIONS,
+    rescueMode: false,
+  });
+  const primaryScan = normalizeTicketScan(primaryParsed, {
+    preprocessingNotes: preparedImages.notes,
+  });
+
+  if (!shouldRetryExtraction(primaryScan)) {
+    return primaryScan;
+  }
+
+  const fallbackParsed = await requestTicketScanExtraction({
+    fileName,
+    images: preparedImages,
+    instructions: FALLBACK_EXTRACTION_INSTRUCTIONS,
+    rescueMode: true,
+  });
+
+  return normalizeTicketScan(fallbackParsed, {
+    preprocessingNotes: [
+      ...preparedImages.notes,
+      "Ran a second-pass rescue extraction for a difficult handwritten image.",
+    ],
+  });
+}
+
+async function requestTicketScanExtraction({ fileName = "", images, instructions, rescueMode }) {
   const response = await createOpenAiResponse({
     model: DEFAULT_SCAN_MODEL,
     store: false,
-    max_output_tokens: 2400,
-    instructions: EXTRACTION_INSTRUCTIONS,
+    max_output_tokens: rescueMode ? 2800 : 2400,
+    instructions,
     input: [
       {
         role: "user",
@@ -194,20 +238,23 @@ async function scanTicketFromImage({ imageDataUrl, fileName = "" } = {}) {
               "Image 1 is the original upload.",
               "Image 2 is a cleaned version for readability.",
               fileName ? `Source filename: ${fileName}` : "",
-              "Read all valid handwritten ticket rows from every cluster you can identify.",
+              rescueMode
+                ? "This is a rescue pass. Prioritize finding candidate rows even if grouping is uncertain."
+                : "Read all valid handwritten ticket rows from every cluster you can identify.",
               "Return houseCandidates and juriCandidates first, then final grouped sections.",
+              "Messy real-world examples may include: 0-5, 1-10, 50-30, 81-9, 06-1, 15-5.",
             ]
               .filter(Boolean)
               .join("\n"),
           },
           {
             type: "input_image",
-            image_url: preparedImages.originalDataUrl,
+            image_url: images.originalDataUrl,
             detail: "high",
           },
           {
             type: "input_image",
-            image_url: preparedImages.cleanedDataUrl,
+            image_url: images.cleanedDataUrl,
             detail: "high",
           },
         ],
@@ -223,10 +270,7 @@ async function scanTicketFromImage({ imageDataUrl, fileName = "" } = {}) {
     },
   });
 
-  const parsed = parseStructuredJsonResponse(response);
-  return normalizeTicketScan(parsed, {
-    preprocessingNotes: preparedImages.notes,
-  });
+  return parseStructuredJsonResponse(response);
 }
 
 async function preprocessImageForScan(parsedImage) {
@@ -689,6 +733,26 @@ function tuneConfidence(confidence, sections) {
   }
 
   return confidence;
+}
+
+function shouldRetryExtraction(scan) {
+  const totalRows =
+    safeArray(scan.thirdHouse).length +
+    safeArray(scan.fourthHouse).length +
+    safeArray(scan.unassignedHouse).length +
+    safeArray(scan.juri).length;
+  const candidateRows =
+    safeArray(scan.houseCandidates).length + safeArray(scan.juriCandidates).length;
+
+  if (totalRows === 0) {
+    return true;
+  }
+
+  if (totalRows <= 2 && candidateRows <= 2 && scan.confidence === "low") {
+    return true;
+  }
+
+  return false;
 }
 
 function parseStructuredJsonResponse(response = {}) {
