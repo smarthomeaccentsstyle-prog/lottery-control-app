@@ -334,7 +334,7 @@ test("renders seller panel with seller session", async () => {
   expect(container.textContent).toContain(
     "Manual entry stays primary, with handwritten scan review as an extra way to fill ticket rows."
   );
-  expect(container.textContent).toContain("Save Ticket");
+  expect(container.textContent).not.toContain("Save Ticket");
   expect(container.textContent).toContain("Scan Entry");
   expect(container.textContent).toContain("3rd House");
   expect(container.textContent).toContain("4th House");
@@ -362,7 +362,7 @@ test("shows scan controls without removing manual entry tools", async () => {
   expect(container.textContent).toContain("Camera Capture");
   expect(container.textContent).toContain("Gallery Upload");
   expect(container.textContent).toContain("Live Preview");
-  expect(container.textContent).toContain("Reset Mode");
+  expect(container.textContent).not.toContain("Reset Mode");
   await unmountApp(root);
 });
 

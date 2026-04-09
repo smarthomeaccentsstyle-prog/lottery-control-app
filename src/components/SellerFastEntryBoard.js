@@ -417,17 +417,23 @@ function EntryPreviewList({
   );
 }
 
-function StickyTicketSummary({ formatCurrency, previewSummary }) {
-  const singleAmount = Number(previewSummary.singleQty || 0) * SINGLE_RATE;
-  const juriAmount = Number(previewSummary.juriQty || 0) * JURI_RATE;
+function StickyTicketSummary({ formatCurrency, previewRowsCount, previewSummary }) {
+  const totalQty = Number(previewSummary.singleQty || 0) + Number(previewSummary.juriQty || 0);
 
   return (
-    <div className="seller-entry-summary-grid">
-      <ModeStat label="Single Qty" value={previewSummary.singleQty || 0} />
-      <ModeStat label="Single Amt" value={formatCurrency(singleAmount)} />
-      <ModeStat label="Juri Qty" value={previewSummary.juriQty || 0} />
-      <ModeStat label="Juri Amt" value={formatCurrency(juriAmount)} />
-      <ModeStat label="Grand Total" value={formatCurrency(previewSummary.total || 0)} />
+    <div className="seller-entry-summary-strip">
+      <div className="seller-entry-summary-total">
+        <span>Grand Total</span>
+        <strong>{formatCurrency(previewSummary.total || 0)}</strong>
+        <small>
+          {previewRowsCount} row(s) | Qty {totalQty}
+        </small>
+      </div>
+
+      <div className="seller-entry-summary-chips">
+        <span>Single {previewSummary.singleQty || 0}</span>
+        <span>Juri {previewSummary.juriQty || 0}</span>
+      </div>
     </div>
   );
 }
@@ -441,13 +447,15 @@ function SaveActionBar({
 }) {
   return (
     <div className="seller-entry-action-bar">
-      <button type="button" className="outline-btn" onClick={onClear} disabled={saving}>
-        Clear
-      </button>
-      <button type="button" className="outline-btn" onClick={onResetMode} disabled={saving}>
-        Reset Mode
-      </button>
-      <button type="button" onClick={onSaveTicket} disabled={!canSave || saving}>
+      <div className="seller-entry-action-secondary-row">
+        <button type="button" className="outline-btn seller-entry-quiet-btn" onClick={onClear} disabled={saving}>
+          Clear Ticket
+        </button>
+        <button type="button" className="outline-btn seller-entry-quiet-btn" onClick={onResetMode} disabled={saving}>
+          Reset Mode
+        </button>
+      </div>
+      <button type="button" className="seller-entry-save-btn" onClick={onSaveTicket} disabled={!canSave || saving}>
         {saving ? "Saving..." : "Save Ticket"}
       </button>
     </div>
@@ -515,6 +523,7 @@ export default function SellerFastEntryBoard({
     [fourth, parsedJuriList.entries, third]
   );
   const previewRows = useMemo(() => buildPreviewRows(previewItems), [previewItems]);
+  const hasPreviewRows = previewRows.length > 0;
   const currentModeMeta = getModeMeta(activeEntryMode);
   const activeInputs = modeInputs[activeEntryMode];
   const activeModeStats = useMemo(
@@ -956,7 +965,7 @@ export default function SellerFastEntryBoard({
   ]);
 
   const handleSaveTicket = useCallback(async () => {
-    if (previewRows.length === 0 || savingTicket) {
+    if (!hasPreviewRows || savingTicket) {
       return;
     }
 
@@ -967,14 +976,14 @@ export default function SellerFastEntryBoard({
     } finally {
       setSavingTicket(false);
     }
-  }, [onSave, previewRows.length, savingTicket]);
+  }, [hasPreviewRows, onSave, savingTicket]);
 
   const boardStyle = useMemo(
     () => ({
-      "--seller-entry-dock-space": `${dockHeight}px`,
+      "--seller-entry-dock-space": hasPreviewRows ? `${dockHeight}px` : "0px",
       "--seller-entry-keyboard-offset": `${keyboardOffset}px`,
     }),
-    [dockHeight, keyboardOffset]
+    [dockHeight, hasPreviewRows, keyboardOffset]
   );
 
   return (
@@ -1113,16 +1122,22 @@ export default function SellerFastEntryBoard({
         </aside>
       </div>
 
-      <div ref={dockRef} className="seller-entry-dock">
-        <StickyTicketSummary formatCurrency={formatCurrency} previewSummary={previewSummary} />
-        <SaveActionBar
-          canSave={previewRows.length > 0}
-          saving={savingTicket}
-          onClear={handleClearAll}
-          onResetMode={handleResetCurrentMode}
-          onSaveTicket={handleSaveTicket}
-        />
-      </div>
+      {hasPreviewRows ? (
+        <div ref={dockRef} className="seller-entry-dock">
+          <StickyTicketSummary
+            formatCurrency={formatCurrency}
+            previewRowsCount={previewRows.length}
+            previewSummary={previewSummary}
+          />
+          <SaveActionBar
+            canSave={hasPreviewRows}
+            saving={savingTicket}
+            onClear={handleClearAll}
+            onResetMode={handleResetCurrentMode}
+            onSaveTicket={handleSaveTicket}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
