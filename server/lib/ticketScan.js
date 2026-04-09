@@ -8,6 +8,7 @@ const SUPPORTED_SIDE_HINTS = new Set(["left", "right", "center", "unknown"]);
 const SUPPORTED_VISION_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const MAX_DATA_URL_SIZE = 12 * 1024 * 1024;
 const MAX_PREP_DIMENSION = 2200;
+const MAX_CROP_DIMENSION = 1800;
 
 class TicketScanValidationError extends Error {}
 
@@ -152,7 +153,7 @@ The images may contain:
 
 Your job:
 1. Read only number-qty ticket rows from the handwriting.
-2. A valid row should look like leftPart-qty.
+2. A valid row may use separators like "-", "=", ".", ":", or a short handwritten connector stroke. Normalize every detected row to leftPart-qty in the JSON.
 3. If leftPart has one digit, it is a house candidate.
 4. If leftPart has two digits, it is a juri candidate.
 5. Preserve leading zeros for juri like 01, 03, 06.
@@ -161,7 +162,7 @@ Your job:
    - left-side cluster is likely thirdHouse
    - right-side cluster is likely fourthHouse
    - if the house side is unclear, put the row in unassignedHouse with a short reason
-8. Juri rows can appear anywhere on the page.
+8. Juri rows can appear anywhere on the page, including center or lower side clusters.
 9. Never invent rows.
 10. Prefer omission plus a note over hallucination.
 11. If uncertain, include your best guess and lower the confidence or add a note.
@@ -173,19 +174,26 @@ Important reminders:
 - House rows are only digits 0 to 9.
 - Juri rows are exactly two digits 00 to 99.
 - Include all valid clusters found on the page.
+- Read each cluster top-to-bottom.
+- If a circled 3 appears above a left single-digit cluster, treat that as a strong thirdHouse cue.
+- If a circled 4 appears above a right single-digit cluster, treat that as a strong fourthHouse cue.
+- Two-digit rows in the center or lower corners should stay in juri, not house sections.
+- Do not treat circled labels themselves as ticket rows.
+- Ignore top date/session text like 1pm, 8/4, 5/7hm, 6/7hm, 8/7hm.
 `.trim();
 
 const FALLBACK_EXTRACTION_INSTRUCTIONS = `
 You are doing a second-pass rescue extraction on a messy handwritten seller ticket image.
 
 Focus on finding every plausible handwritten row that matches:
-- one digit + "-" + qty  => house candidate
-- two digits + "-" + qty => juri candidate
+- one digit + separator + qty  => house candidate
+- two digits + separator + qty => juri candidate
 
 Do not force thirdHouse or fourthHouse assignment unless the side is clearly visible.
 If unsure about house side, use sideHint "unknown" or "center" and let normalization place it in unassignedHouse.
 Ignore dates, session text, names, decorative words, and headings.
 Preserve leading zeros exactly for juri.
+Accept separator strokes that look like "-", "=", ".", ":", or a short handwritten mark, but normalize them to number-qty in the JSON.
 Return valid JSON only and prefer partial safe extraction over hallucination.
 `.trim();
 
@@ -213,51 +221,47 @@ async function scanTicketFromImage({ imageDataUrl, fileName = "" } = {}) {
     rescueMode: true,
   });
 
-  return normalizeTicketScan(fallbackParsed, {
+  const fallbackScan = normalizeTicketScan(fallbackParsed, {
     preprocessingNotes: [
       ...preparedImages.notes,
       "Ran a second-pass rescue extraction for a difficult handwritten image.",
     ],
   });
+
+  return pickBetterScan(primaryScan, fallbackScan);
 }
 
 async function requestTicketScanExtraction({ fileName = "", images, instructions, rescueMode }) {
+  const content = [
+    {
+      type: "input_text",
+      text: [
+        "These images all represent the same seller ticket photo.",
+        "Use the full-page view for layout cues and the focused crops for exact row reading.",
+        "If a crop is clearer than the full page, prefer the crop for transcription.",
+        fileName ? `Source filename: ${fileName}` : "",
+        rescueMode
+          ? "This is a rescue pass. Prioritize finding candidate rows even if grouping is uncertain."
+          : "Read all valid handwritten ticket rows from every cluster you can identify.",
+        "Return houseCandidates and juriCandidates first, then final grouped sections.",
+        "Messy real-world examples may include: 0-5, 1-10, 50-30, 81-9, 06-1, 15-5.",
+        "Normalize separator marks to number-qty even if the handwriting uses '=', '.', ':', or a short stroke.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+    ...buildScanImageInputs(images.views),
+  ];
+
   const response = await createOpenAiResponse({
     model: DEFAULT_SCAN_MODEL,
     store: false,
-    max_output_tokens: rescueMode ? 2800 : 2400,
+    max_output_tokens: rescueMode ? 3400 : 3000,
     instructions,
     input: [
       {
         role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: [
-              "These images all represent the same seller ticket photo.",
-              "Image 1 is the original upload.",
-              "Image 2 is a cleaned version for readability.",
-              fileName ? `Source filename: ${fileName}` : "",
-              rescueMode
-                ? "This is a rescue pass. Prioritize finding candidate rows even if grouping is uncertain."
-                : "Read all valid handwritten ticket rows from every cluster you can identify.",
-              "Return houseCandidates and juriCandidates first, then final grouped sections.",
-              "Messy real-world examples may include: 0-5, 1-10, 50-30, 81-9, 06-1, 15-5.",
-            ]
-              .filter(Boolean)
-              .join("\n"),
-          },
-          {
-            type: "input_image",
-            image_url: images.originalDataUrl,
-            detail: "high",
-          },
-          {
-            type: "input_image",
-            image_url: images.cleanedDataUrl,
-            detail: "high",
-          },
-        ],
+        content,
       },
     ],
     text: {
@@ -314,8 +318,25 @@ async function preprocessImageForScan(parsedImage) {
         mozjpeg: true,
       })
       .toBuffer();
+    const cleanedMetadata = await sharp(cleanedBuffer, { failOn: "none" }).metadata();
+    const views = [
+      {
+        label: "Full original photo for overall layout, circled labels, and cluster positions.",
+        dataUrl: originalDataUrl,
+      },
+      {
+        label: "Cleaned full-page photo with rotation handling and readability enhancement.",
+        dataUrl: toDataUrl("image/jpeg", cleanedBuffer),
+      },
+    ];
+
+    const focusedViews = await buildFocusedScanViews(cleanedBuffer, cleanedMetadata);
+    views.push(...focusedViews);
 
     notes.push("Prepared a cleaned scan image with rotation handling and readability enhancement.");
+    if (focusedViews.length > 0) {
+      notes.push("Prepared focused ticket crops for left, center, right, and lower handwritten clusters.");
+    }
 
     if (resized) {
       notes.push("Large image was resized for stable model processing.");
@@ -324,6 +345,7 @@ async function preprocessImageForScan(parsedImage) {
     return {
       originalDataUrl,
       cleanedDataUrl: toDataUrl("image/jpeg", cleanedBuffer),
+      views,
       notes,
     };
   } catch {
@@ -331,9 +353,120 @@ async function preprocessImageForScan(parsedImage) {
     return {
       originalDataUrl,
       cleanedDataUrl: originalDataUrl,
+      views: [
+        {
+          label: "Full original photo for overall layout and handwriting review.",
+          dataUrl: originalDataUrl,
+        },
+      ],
       notes,
     };
   }
+}
+
+function buildScanImageInputs(views) {
+  return safeArray(views).flatMap((view, index) => {
+    const label = String(view && view.label ? view.label : "").trim();
+    const dataUrl = String(view && view.dataUrl ? view.dataUrl : "").trim();
+
+    if (!label || !dataUrl) {
+      return [];
+    }
+
+    return [
+      {
+        type: "input_text",
+        text: `View ${index + 1}: ${label}`,
+      },
+      {
+        type: "input_image",
+        image_url: dataUrl,
+        detail: "high",
+      },
+    ];
+  });
+}
+
+async function buildFocusedScanViews(cleanedBuffer, metadata = {}) {
+  const width = Number(metadata.width || 0);
+  const height = Number(metadata.height || 0);
+
+  if (width < 300 || height < 300) {
+    return [];
+  }
+
+  const regions = [
+    {
+      label: "Focused left-side crop. This is usually where a 3rd House single-digit cluster appears under a circled 3.",
+      region: relativeRegion(width, height, 0.04, 0.14, 0.34, 0.56),
+    },
+    {
+      label: "Focused center crop. This is usually where the main Juri two-digit cluster appears.",
+      region: relativeRegion(width, height, 0.28, 0.26, 0.38, 0.58),
+    },
+    {
+      label: "Focused right-side crop. This is usually where a 4th House single-digit cluster appears under a circled 4.",
+      region: relativeRegion(width, height, 0.62, 0.14, 0.32, 0.56),
+    },
+    {
+      label: "Focused lower-left crop. Check for extra two-digit Juri rows in the lower-left corner.",
+      region: relativeRegion(width, height, 0.02, 0.64, 0.34, 0.24),
+    },
+    {
+      label: "Focused lower-right crop. Check for extra two-digit Juri rows in the lower-right corner.",
+      region: relativeRegion(width, height, 0.62, 0.64, 0.30, 0.24),
+    },
+  ];
+
+  const views = [];
+
+  for (const view of regions) {
+    try {
+      const croppedBuffer = await sharp(cleanedBuffer, { failOn: "none" })
+        .extract(view.region)
+        .resize({
+          width: MAX_CROP_DIMENSION,
+          height: MAX_CROP_DIMENSION,
+          fit: "inside",
+        })
+        .normalise()
+        .sharpen()
+        .jpeg({
+          quality: 92,
+          mozjpeg: true,
+        })
+        .toBuffer();
+
+      views.push({
+        label: view.label,
+        dataUrl: toDataUrl("image/jpeg", croppedBuffer),
+      });
+    } catch {
+      // Ignore a failed crop and continue with the remaining views.
+    }
+  }
+
+  return views;
+}
+
+function relativeRegion(width, height, xRatio, yRatio, widthRatio, heightRatio) {
+  const left = clampPixel(Math.round(width * xRatio), width - 1);
+  const top = clampPixel(Math.round(height * yRatio), height - 1);
+  const maxWidth = Math.max(1, width - left);
+  const maxHeight = Math.max(1, height - top);
+  const cropWidth = Math.max(120, Math.min(maxWidth, Math.round(width * widthRatio)));
+  const cropHeight = Math.max(120, Math.min(maxHeight, Math.round(height * heightRatio)));
+
+  return {
+    left,
+    top,
+    width: cropWidth,
+    height: cropHeight,
+  };
+}
+
+function clampPixel(value, maxValue) {
+  return Math.max(0, Math.min(maxValue, value));
 }
 
 function normalizeTicketScan(payload = {}, options = {}) {
@@ -496,6 +629,7 @@ function normalizeJuriCandidates(entries, notes) {
 function normalizeHouseSection(entries, notes, sectionName) {
   const merged = new Map();
   const order = [];
+  const seenExactRows = new Set();
 
   safeArray(entries).forEach((entry, index) => {
     const digit = normalizeDigit(entry && entry.digit);
@@ -510,6 +644,15 @@ function normalizeHouseSection(entries, notes, sectionName) {
       notes.push(`Dropped ${sectionName} row ${index + 1}: qty must be a positive integer.`);
       return;
     }
+
+    const exactRowKey = `${digit}|${qty}`;
+
+    if (seenExactRows.has(exactRowKey)) {
+      notes.push(`Removed duplicate ${sectionName} row ${digit}-${qty}.`);
+      return;
+    }
+
+    seenExactRows.add(exactRowKey);
 
     if (!merged.has(digit)) {
       merged.set(digit, qty);
@@ -530,6 +673,7 @@ function normalizeHouseSection(entries, notes, sectionName) {
 function normalizeUnassignedHouse(entries, notes) {
   const merged = new Map();
   const order = [];
+  const seenExactRows = new Set();
 
   safeArray(entries).forEach((entry, index) => {
     const digit = normalizeDigit(entry && entry.digit);
@@ -545,6 +689,15 @@ function normalizeUnassignedHouse(entries, notes) {
       notes.push(`Dropped unassigned house row ${index + 1}: qty must be a positive integer.`);
       return;
     }
+
+    const exactRowKey = `${digit}|${qty}|${reason || "house row found but side/section unclear"}`;
+
+    if (seenExactRows.has(exactRowKey)) {
+      notes.push(`Removed duplicate unassigned house row ${digit}-${qty}.`);
+      return;
+    }
+
+    seenExactRows.add(exactRowKey);
 
     if (!merged.has(digit)) {
       merged.set(digit, {
@@ -573,6 +726,7 @@ function normalizeUnassignedHouse(entries, notes) {
 function normalizeJuriSection(entries, notes) {
   const merged = new Map();
   const order = [];
+  const seenExactRows = new Set();
 
   safeArray(entries).forEach((entry, index) => {
     const number = normalizeJuriNumber(entry && entry.number);
@@ -587,6 +741,15 @@ function normalizeJuriSection(entries, notes) {
       notes.push(`Dropped juri row ${index + 1}: qty must be a positive integer.`);
       return;
     }
+
+    const exactRowKey = `${number}|${qty}`;
+
+    if (seenExactRows.has(exactRowKey)) {
+      notes.push(`Removed duplicate juri row ${number}-${qty}.`);
+      return;
+    }
+
+    seenExactRows.add(exactRowKey);
 
     if (!merged.has(number)) {
       merged.set(number, qty);
@@ -748,11 +911,52 @@ function shouldRetryExtraction(scan) {
     return true;
   }
 
+  if (totalRows <= 3 && scan.confidence !== "high") {
+    return true;
+  }
+
+  if (totalRows <= 6 && scan.confidence === "low") {
+    return true;
+  }
+
   if (totalRows <= 2 && candidateRows <= 2 && scan.confidence === "low") {
     return true;
   }
 
   return false;
+}
+
+function pickBetterScan(primaryScan, fallbackScan) {
+  const primaryScore = scoreScan(primaryScan);
+  const fallbackScore = scoreScan(fallbackScan);
+
+  if (fallbackScore <= primaryScore) {
+    return primaryScan;
+  }
+
+  return {
+    ...fallbackScan,
+    notes: dedupeStrings([
+      ...safeArray(fallbackScan.notes),
+      "Rescue extraction improved the scan result for this handwritten image.",
+    ]),
+  };
+}
+
+function scoreScan(scan) {
+  const resolvedRows =
+    safeArray(scan.thirdHouse).length +
+    safeArray(scan.fourthHouse).length +
+    safeArray(scan.juri).length;
+  const unresolvedRows = safeArray(scan.unassignedHouse).length;
+  const totalRows = resolvedRows + unresolvedRows;
+  const confidenceScore = {
+    low: 0,
+    medium: 2,
+    high: 4,
+  }[normalizeConfidence(scan.confidence)];
+
+  return resolvedRows * 20 + totalRows * 6 + confidenceScore - unresolvedRows * 8;
 }
 
 function parseStructuredJsonResponse(response = {}) {

@@ -82,6 +82,15 @@
   gap: 4px;
 }
 
+.seller-entry-scan-status {
+  padding: 11px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(121, 203, 255, 0.24);
+  background: rgba(8, 24, 40, 0.82);
+  color: #cbe9ff;
+  line-height: 1.45;
+}
+
 .seller-entry-scan-actions,
 .seller-entry-scan-review-actions {
   display: grid;

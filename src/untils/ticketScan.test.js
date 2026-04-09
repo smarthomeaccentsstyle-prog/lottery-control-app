@@ -1,5 +1,6 @@
 import {
   buildScanFromReviewDraft,
+  canAutoApplyScan,
   mapScanResultToDraft,
   normalizeScanResponse,
 } from "./ticketScan.js";
@@ -120,4 +121,65 @@ test("review draft blocks invalid rows and preserves unresolved house rows", () 
     { digit: "1", qty: 10, reason: "unclear side" },
   ]);
   expect(prepared.scan.juri).toEqual([{ number: "03", qty: 1 }]);
+});
+
+test("does not double identical rows when a scan sees the same entry more than once", () => {
+  const scan = normalizeScanResponse({
+    thirdHouse: [
+      { digit: "0", qty: 10 },
+      { digit: "0", qty: 10 },
+      { digit: "1", qty: 7 },
+    ],
+    fourthHouse: [
+      { digit: "7", qty: 15 },
+      { digit: "7", qty: 15 },
+    ],
+    juri: [
+      { number: "08", qty: 19 },
+      { number: "08", qty: 19 },
+      { number: "12", qty: 10 },
+    ],
+    rawLines: [],
+    notes: [],
+    confidence: "medium",
+  });
+
+  expect(scan.thirdHouse).toEqual([
+    { digit: "0", qty: 10 },
+    { digit: "1", qty: 7 },
+  ]);
+  expect(scan.fourthHouse).toEqual([{ digit: "7", qty: 15 }]);
+  expect(scan.juri).toEqual([
+    { number: "08", qty: 19 },
+    { number: "12", qty: 10 },
+  ]);
+});
+
+test("auto-applies clean scans and keeps ambiguous house scans in review", () => {
+  expect(
+    canAutoApplyScan({
+      thirdHouse: [{ digit: "0", qty: 10 }],
+      fourthHouse: [{ digit: "7", qty: 15 }],
+      unassignedHouse: [],
+      juri: [{ number: "08", qty: 19 }],
+    })
+  ).toBe(true);
+
+  expect(
+    canAutoApplyScan({
+      thirdHouse: [{ digit: "0", qty: 10 }],
+      fourthHouse: [],
+      unassignedHouse: [{ digit: "1", qty: 7, reason: "unclear side" }],
+      juri: [{ number: "08", qty: 19 }],
+    })
+  ).toBe(false);
+
+  expect(
+    canAutoApplyScan({
+      thirdHouse: [],
+      fourthHouse: [],
+      unassignedHouse: [],
+      juri: [],
+    })
+  ).toBe(false);
 });

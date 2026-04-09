@@ -2698,6 +2698,10 @@ textarea::placeholder {
     display: none;
   }
 
+  .app.seller-app {
+    padding-bottom: calc(126px + env(safe-area-inset-bottom));
+  }
+
   .seller-mobile-dock {
     position: fixed;
     left: 12px;
@@ -3002,6 +3006,10 @@ textarea::placeholder {
 
   .fast-keypad-btn {
     min-height: 52px;
+  }
+
+  .app.seller-app {
+    padding-bottom: calc(120px + env(safe-area-inset-bottom));
   }
 
   .seller-mobile-dock {
