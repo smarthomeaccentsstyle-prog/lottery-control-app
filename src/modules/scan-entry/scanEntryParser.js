@@ -276,7 +276,7 @@ function validateScanRow(sectionKey, row, parseMeta) {
   if (!row.number || !row.quantity) {
     return {
       ok: false,
-      message: "Format not recognized",
+      message: "Enter number and quantity",
     };
   }
 
@@ -439,7 +439,7 @@ function buildReviewStateFromSections(sectionLines, ocrText, layout) {
             section: sectionKey,
             text: lineText,
             confidence: Number(line && line.confidence ? line.confidence : 0),
-            reason: "Ticket row format not recognized",
+            reason: "Enter this row manually",
           });
         }
         return;

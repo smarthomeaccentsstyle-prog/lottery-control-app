@@ -19,6 +19,7 @@ import {
   loadFileToCanvas,
   recognizeTicketImage,
 } from "./scanEntryOcr.js";
+import ScanEntryEditScreen from "./ScanEntryEditScreen.js";
 import ScanEntryReview from "./ScanEntryReview.js";
 
 function buildEditorState(item) {
@@ -100,7 +101,7 @@ function buildSectionItems(reviewState) {
       quantity: "",
       tone: "low",
       isValid: false,
-      issue: line.reason || "OCR line needs manual correction",
+      issue: line.reason || "Enter this row manually",
       originalText: line.text || "",
       originalPreview: line.text || "",
       confidence: Number(line.confidence || 0),
@@ -113,14 +114,6 @@ function buildSectionItems(reviewState) {
 
 function flattenSectionItems(sectionItems) {
   return getSectionOrder().flatMap((sectionKey) => sectionItems[sectionKey] || []);
-}
-
-function findFirstFlaggedItem(sectionItems) {
-  return (
-    flattenSectionItems(sectionItems).find(
-      (item) => item.sourceKind === "ignored" || item.tone === "low" || !item.isValid
-    ) || null
-  );
 }
 
 function findItemById(sectionItems, itemId) {
@@ -191,6 +184,7 @@ export default function ScanEntryFlow({
   const canApplyEditorFix = Boolean(editorState.itemId) && editorValidation.ok;
   const canRemoveSelectedRow =
     Boolean(editorState.itemId) && editorState.sourceKind === "row" && !saving;
+  const screenPhase = phase === "edit" && !selectedItem ? "review" : phase;
 
   const pulseKey = (key) => {
     setPressedKey(key);
@@ -230,6 +224,14 @@ export default function ScanEntryFlow({
 
   const selectEditorItem = (item) => {
     setEditorState(buildEditorState(item));
+    setScanError("");
+    setPhase("edit");
+  };
+
+  const closeEditor = () => {
+    setEditorState(buildEditorState(null));
+    setScanError("");
+    setPhase("review");
   };
 
   const runOcr = async (rawCanvas) => {
@@ -260,14 +262,11 @@ export default function ScanEntryFlow({
         throw new Error("No ticket rows were detected. Try a sharper photo or manual entry.");
       }
 
-      const nextSectionItems = buildSectionItems(nextReviewState);
-      const firstIssueItem = findFirstFlaggedItem(nextSectionItems);
-
       setReviewState(nextReviewState);
       setPhase("review");
       setProcessingProgress(1);
       setProcessingLabel("Confidence review ready");
-      setEditorState(buildEditorState(firstIssueItem));
+      setEditorState(buildEditorState(null));
     } catch (error) {
       setScanError(error && error.message ? error.message : "Scan failed. Try another image.");
       setPhase("input");
@@ -367,12 +366,6 @@ export default function ScanEntryFlow({
     });
   };
 
-  const focusNextIssue = (nextState) => {
-    const nextItems = buildSectionItems(nextState);
-    const nextIssueItem = findFirstFlaggedItem(nextItems);
-    setEditorState(buildEditorState(nextIssueItem));
-  };
-
   const applyEditorFix = () => {
     if (!canApplyEditorFix || !selectedItem) {
       return;
@@ -393,7 +386,9 @@ export default function ScanEntryFlow({
 
     pulseKey("apply-fix");
     setReviewState(nextState);
-    focusNextIssue(nextState);
+    setEditorState(buildEditorState(null));
+    setScanError("");
+    setPhase("review");
   };
 
   const removeSelectedRow = () => {
@@ -408,7 +403,9 @@ export default function ScanEntryFlow({
 
     pulseKey("remove-row");
     setReviewState(nextState);
-    focusNextIssue(nextState);
+    setEditorState(buildEditorState(null));
+    setScanError("");
+    setPhase("review");
   };
 
   const confirmAndSave = async () => {
@@ -451,73 +448,77 @@ export default function ScanEntryFlow({
         onChange={handleFileSelection}
       />
 
-      <div className="scan-board-header">
-        <div className="section-header">
-          <h2>Scanner Entry</h2>
-          <span>Auto-detect ticket rows, fix only the doubtful ones, then save directly.</span>
-        </div>
-      </div>
-
       {ticketActionNotice ? (
         <div className={`fast-entry-inline-note ${ticketActionNotice.tone || "info"}`}>
           <span>{ticketActionNotice.message}</span>
         </div>
       ) : null}
 
-      {scanError ? <div className="scan-feedback error">{scanError}</div> : null}
-
-      <div className="fast-entry-booking-bar fast-entry-booking-bar-v2">
-        <div className="fast-entry-booking-pill">
-          <span>Booking For:</span>
-          <strong>{bookingDate}</strong>
-          <small>
-            {drawLabel}
-            {bookingDateAdjusted ? ` | moved after ${formatEntryCutoffTime(drawTime)}` : ""}
-          </small>
-        </div>
-
-        <label className="fast-entry-control">
-          <span>Date</span>
-          <input
-            type="date"
-            min={todayString}
-            max={maxBookingDate}
-            value={date}
-            onChange={(event) => onDateChange(event.target.value)}
-          />
-        </label>
-
-        <label className="fast-entry-control">
-          <span>Draw</span>
-          <select value={drawTime} onChange={(event) => onDrawTimeChange(event.target.value)}>
-            {drawOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="fast-entry-booking-note">
-        <strong>AI Pipeline Ready</strong>
-        <span>
-          Auto crop, orientation fix, section detection, OCR parsing and confidence scoring all run before anything can be saved.
-        </span>
-      </div>
-
-      {previewUrl ? (
-        <div className="scan-preview-strip">
-          <img src={previewUrl} alt="Scanned ticket preview" />
-          <div>
-            <strong>{drawLabel}</strong>
-            <span>{bookingDate}</span>
-            <small>{phase === "review" ? "Reviewing detected rows now." : processingLabel}</small>
+      {(screenPhase === "input" || screenPhase === "processing") && (
+        <>
+          <div className="scan-board-header">
+            <div className="section-header">
+              <h2>Scanner Entry</h2>
+              <span>Auto-detect ticket rows, fix only the doubtful ones, then save directly.</span>
+            </div>
           </div>
-        </div>
-      ) : null}
 
-      {phase === "input" ? (
+          {scanError ? <div className="scan-feedback error">{scanError}</div> : null}
+
+          <div className="fast-entry-booking-bar fast-entry-booking-bar-v2">
+            <div className="fast-entry-booking-pill">
+              <span>Booking For:</span>
+              <strong>{bookingDate}</strong>
+              <small>
+                {drawLabel}
+                {bookingDateAdjusted ? ` | moved after ${formatEntryCutoffTime(drawTime)}` : ""}
+              </small>
+            </div>
+
+            <label className="fast-entry-control">
+              <span>Date</span>
+              <input
+                type="date"
+                min={todayString}
+                max={maxBookingDate}
+                value={date}
+                onChange={(event) => onDateChange(event.target.value)}
+              />
+            </label>
+
+            <label className="fast-entry-control">
+              <span>Draw</span>
+              <select value={drawTime} onChange={(event) => onDrawTimeChange(event.target.value)}>
+                {drawOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="fast-entry-booking-note">
+            <strong>AI Pipeline Ready</strong>
+            <span>
+              Auto crop, orientation fix, section detection, OCR parsing and confidence scoring all run before anything can be saved.
+            </span>
+          </div>
+
+          {previewUrl ? (
+            <div className="scan-preview-strip">
+              <img src={previewUrl} alt="Scanned ticket preview" />
+              <div>
+                <strong>{drawLabel}</strong>
+                <span>{bookingDate}</span>
+                <small>{processingLabel}</small>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {screenPhase === "input" ? (
         <div className="scan-source-stage">
           <div className="scan-source-grid">
             <button type="button" className="scan-source-card camera" onClick={() => openSourcePicker("camera")}>
@@ -556,7 +557,7 @@ export default function ScanEntryFlow({
         </div>
       ) : null}
 
-      {phase === "processing" ? (
+      {screenPhase === "processing" ? (
         <div className="scan-processing-stage">
           <div
             className="scan-processing-ring"
@@ -571,121 +572,39 @@ export default function ScanEntryFlow({
         </div>
       ) : null}
 
-      {phase === "review" ? (
-        <>
-          <ScanEntryReview
-            sectionItems={sectionItems}
-            stats={stats}
-            selectedItemId={editorState.itemId}
-            formatCurrency={formatCurrency}
-            saving={saving}
-            totalAmount={estimatedTotal}
-            onConfirmAndSave={confirmAndSave}
-            onRetake={resetScanner}
-            onSelectItem={selectEditorItem}
-          />
+      {screenPhase === "review" ? (
+        <ScanEntryReview
+          bookingDate={bookingDate}
+          drawLabel={drawLabel}
+          scanError={scanError}
+          sectionItems={sectionItems}
+          stats={stats}
+          formatCurrency={formatCurrency}
+          saving={saving}
+          totalAmount={estimatedTotal}
+          onConfirmAndSave={confirmAndSave}
+          onRetake={resetScanner}
+          onSelectItem={selectEditorItem}
+        />
+      ) : null}
 
-          <div className="scan-inline-editor">
-            <div className="scan-inline-editor-head">
-              <div>
-                <span>{selectedItem ? "Inline Fix" : "Review Status"}</span>
-                <strong>
-                  {selectedItem
-                    ? `${selectedItem.section === "juri" ? "JURI" : selectedItem.section === "fourth" ? "4TH HOUSE" : "3RD HOUSE"} row`
-                    : stats.issueCount > 0
-                      ? "Tap a highlighted row to fix it"
-                      : "All rows are ready to save"}
-                </strong>
-              </div>
-              {selectedItem ? (
-                <small>
-                  {selectedItem.issue ||
-                    (selectedItem.suggestions && selectedItem.suggestions.length > 0
-                      ? `Check ${selectedItem.suggestions.join(", ")}`
-                      : "Tap Number or Quantity, then use the keypad.")}
-                </small>
-              ) : (
-                <small>
-                  {stats.issueCount > 0
-                    ? "The first doubtful row is selected automatically after each fix."
-                    : "You can still tap any row above to make a final adjustment."}
-                </small>
-              )}
-            </div>
-
-            {selectedItem ? (
-              <>
-                <div className="scan-inline-display-grid">
-                  <button
-                    type="button"
-                    className={`scan-inline-display ${editorState.activeField === "number" ? "active" : ""}`}
-                    onClick={() => focusEditorField("number")}
-                  >
-                    <span>Number</span>
-                    <strong>
-                      {editorState.section === "juri"
-                        ? editorState.number
-                          ? editorState.number.length === 1
-                            ? `${editorState.number}_`
-                            : editorState.number.padStart(2, "0")
-                          : "__"
-                        : editorState.number || "_"}
-                    </strong>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`scan-inline-display ${editorState.activeField === "quantity" ? "active" : ""}`}
-                    onClick={() => focusEditorField("quantity")}
-                  >
-                    <span>Quantity</span>
-                    <strong>{editorState.quantity || "0"}</strong>
-                  </button>
-                </div>
-
-                <div className="scan-inline-keypad">
-                  {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-                    <button
-                      key={digit}
-                      type="button"
-                      className={`scan-keypad-btn ${pressedKey === `digit-${digit}` ? "active" : ""}`}
-                      onClick={() => handleDigitPress(digit)}
-                    >
-                      {digit}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className={`scan-keypad-btn zero ${pressedKey === "digit-0" ? "active" : ""}`}
-                    onClick={() => handleDigitPress("0")}
-                  >
-                    0
-                  </button>
-                  <button
-                    type="button"
-                    className={`scan-keypad-btn backspace ${pressedKey === "digit-backspace" ? "active" : ""}`}
-                    onClick={handleBackspace}
-                  >
-                    ⌫
-                  </button>
-                </div>
-
-                <div className="scan-inline-actions">
-                  {canRemoveSelectedRow ? (
-                    <button type="button" className="outline-btn danger-btn" onClick={removeSelectedRow}>
-                      Remove Row
-                    </button>
-                  ) : (
-                    <div className="scan-inline-hint">Low-confidence rows stay highlighted until fixed.</div>
-                  )}
-                  <button type="button" onClick={applyEditorFix} disabled={!canApplyEditorFix || saving}>
-                    Apply Fix
-                  </button>
-                </div>
-              </>
-            ) : null}
-          </div>
-        </>
+      {screenPhase === "edit" ? (
+        <ScanEntryEditScreen
+          item={selectedItem}
+          editorState={editorState}
+          validationMessage={editorValidation.message}
+          canApplyEditorFix={canApplyEditorFix}
+          canRemoveSelectedRow={canRemoveSelectedRow}
+          saving={saving}
+          pressedKey={pressedKey}
+          scanError={scanError}
+          onBack={closeEditor}
+          onFocusField={focusEditorField}
+          onDigitPress={handleDigitPress}
+          onBackspace={handleBackspace}
+          onApplyFix={applyEditorFix}
+          onRemoveRow={removeSelectedRow}
+        />
       ) : null}
 
       {lastSavedTicketId ? (
