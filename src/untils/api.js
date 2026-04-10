@@ -136,8 +136,29 @@ export async function fetchMasterAdminApi() {
   return response;
 }
 
+export async function fetchMasterAdminsApi() {
+  const response = await apiRequest("/master/admins");
+  return response;
+}
+
+export async function createMasterAdminApi(payload) {
+  const response = await apiRequest("/master/admins", {
+    method: "POST",
+    body: payload,
+  });
+  return response;
+}
+
 export async function updateMasterAdminApi(payload) {
   const response = await apiRequest("/master/admin", {
+    method: "PATCH",
+    body: payload,
+  });
+  return response;
+}
+
+export async function updateMasterAdminAccountApi(id, payload) {
+  const response = await apiRequest(`/master/admins/${id}`, {
     method: "PATCH",
     body: payload,
   });

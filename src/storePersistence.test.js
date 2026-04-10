@@ -94,6 +94,9 @@ test("migrates legacy data into external DATA_DIR on first boot", () => {
   expect(storage.initializationMode).toBe("migrated");
   expect(path.resolve(storage.migrationSource)).toBe(path.resolve(legacyFile));
   expect(db.admin.username).toBe("office");
+  expect(db.admins).toHaveLength(1);
+  expect(db.admins[0].username).toBe("office");
+  expect(db.admins[0].id).toBeTruthy();
   expect(db.sellers).toHaveLength(1);
   expect(db.sellers[0].username).toBe("storedseller");
   expect(fs.existsSync(path.join(persistentDir, "db.json"))).toBe(true);

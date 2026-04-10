@@ -6,11 +6,14 @@ const path = require("path");
 const { URL } = require("url");
 
 const {
+  createAdmin,
   createSeller,
   createTicket,
   DEFAULT_DB,
+  normalizeAdmin,
   normalizeSeller,
   normalizeTicket,
+  updateAdmin,
   updateSeller,
   updateTicket,
 } = require("./lib/models");
@@ -115,14 +118,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (role === "admin") {
-        if (
-          normalizeUsername(username) === normalizeUsername(db.admin.username) &&
-          verifyPassword(password, db.admin.password)
-        ) {
+        const adminAccount = findAdminAccountByUsername(db, username);
+
+        if (adminAccount && verifyPassword(password, adminAccount.password)) {
           clearLoginAttempts(loginKey);
           const session = createSession({
             role: "admin",
-            username: db.admin.username,
+            adminId: adminAccount.id,
+            username: adminAccount.username,
           });
 
           return sendJson(res, 200, {
@@ -228,20 +231,38 @@ const server = http.createServer(async (req, res) => {
       }
 
       const db = updateDb((current) => {
-        if (!verifyPassword(payload.currentPassword, current.admin.password)) {
+        const adminAccounts = getAdminAccounts(current);
+        const adminIndex = adminAccounts.findIndex(
+          (admin) =>
+            String(admin.id) === String(authSession.adminId) ||
+            normalizeUsername(admin.username) === normalizeUsername(authSession.username)
+        );
+
+        if (adminIndex < 0) {
+          throw new ForbiddenError(FORBIDDEN_MESSAGE);
+        }
+
+        const currentAdmin = adminAccounts[adminIndex];
+
+        if (!verifyPassword(payload.currentPassword, currentAdmin.password)) {
           throw new ValidationError("Current password is incorrect");
         }
 
-        current.admin = {
-          ...current.admin,
-          password: hashPassword(payload.newPassword),
-        };
+        const nextAdmins = adminAccounts.map((admin, index) =>
+          index === adminIndex
+            ? updateAdmin(currentAdmin, {
+                password: hashPassword(payload.newPassword),
+              })
+            : admin
+        );
+
+        syncAdminAccounts(current, nextAdmins);
         return current;
       });
 
       return sendJson(res, 200, {
         ok: true,
-        admin: toPublicAdmin(db.admin),
+        admin: toPublicAdmin(findAdminAccountBySession(db, authSession)),
         message: "Admin password updated",
       });
     }
@@ -670,6 +691,95 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (pathname === "/api/master/admins" && req.method === "GET") {
+      if (!ensureRole(res, authSession, "master")) {
+        return;
+      }
+
+      const db = getDb();
+      return sendJson(res, 200, {
+        ok: true,
+        admins: getAdminAccounts(db).map(toPublicAdmin),
+      });
+    }
+
+    if (pathname === "/api/master/admins" && req.method === "POST") {
+      if (!ensureRole(res, authSession, "master")) {
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const payload = sanitizeAdminPayload(body);
+      validateAdminPayload(payload);
+
+      const db = updateDb((current) => {
+        const admins = getAdminAccounts(current);
+        ensureUniqueAdminUsername(admins, payload.username);
+        syncAdminAccounts(current, [
+          ...admins,
+          createAdmin(
+            {
+              ...payload,
+              password: hashPassword(payload.password),
+            },
+            admins
+          ),
+        ]);
+        return current;
+      });
+
+      return sendJson(res, 201, {
+        ok: true,
+        admin: toPublicAdmin(getAdminAccounts(db).slice(-1)[0]),
+        admins: getAdminAccounts(db).map(toPublicAdmin),
+      });
+    }
+
+    if (pathname.startsWith("/api/master/admins/") && req.method === "PATCH") {
+      if (!ensureRole(res, authSession, "master")) {
+        return;
+      }
+
+      const adminId = extractId(pathname, "/api/master/admins/");
+      const body = await readJsonBody(req);
+      const payload = sanitizeAdminPayload(body, {
+        partial: true,
+      });
+
+      const db = updateDb((current) => {
+        const admins = getAdminAccounts(current);
+        const adminIndex = admins.findIndex((admin) => String(admin.id) === adminId);
+
+        if (adminIndex < 0) {
+          throw new Error("Admin not found");
+        }
+
+        validateAdminUpdatePayload(payload);
+
+        if (payload.username) {
+          ensureUniqueAdminUsername(admins, payload.username, adminId);
+        }
+
+        const currentAdmin = admins[adminIndex];
+        const nextAdmin = updateAdmin(currentAdmin, {
+          ...payload,
+          ...(payload.password ? { password: hashPassword(payload.password) } : {}),
+        });
+
+        syncAdminAccounts(
+          current,
+          admins.map((admin, index) => (index === adminIndex ? nextAdmin : admin))
+        );
+        return current;
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        admin: toPublicAdmin(findAdminAccountById(db, adminId)),
+        admins: getAdminAccounts(db).map(toPublicAdmin),
+      });
+    }
+
     if (pathname === "/api/master/admin" && req.method === "GET") {
       if (!ensureRole(res, authSession, "master")) {
         return;
@@ -678,7 +788,8 @@ const server = http.createServer(async (req, res) => {
       const db = getDb();
       return sendJson(res, 200, {
         ok: true,
-        admin: toPublicAdmin(db.admin),
+        admin: toPublicAdmin(getPrimaryAdmin(db)),
+        admins: getAdminAccounts(db).map(toPublicAdmin),
       });
     }
 
@@ -692,17 +803,25 @@ const server = http.createServer(async (req, res) => {
       validateAdminPayload(payload);
 
       const db = updateDb((current) => {
-        current.admin = {
-          ...current.admin,
-          ...payload,
-          password: hashPassword(payload.password),
-        };
+        const admins = getAdminAccounts(current);
+        const primaryAdmin = admins[0] || normalizeAdmin(DEFAULT_DB.admin, 0);
+
+        ensureUniqueAdminUsername(admins, payload.username, primaryAdmin.id);
+
+        syncAdminAccounts(current, [
+          updateAdmin(primaryAdmin, {
+            ...payload,
+            password: hashPassword(payload.password),
+          }),
+          ...admins.slice(1),
+        ]);
         return current;
       });
 
       return sendJson(res, 200, {
         ok: true,
-        admin: toPublicAdmin(db.admin),
+        admin: toPublicAdmin(getPrimaryAdmin(db)),
+        admins: getAdminAccounts(db).map(toPublicAdmin),
       });
     }
 
@@ -742,7 +861,11 @@ const server = http.createServer(async (req, res) => {
 
     if (
       error &&
-      (error.message === "Ticket not found" || error.message === "Seller not found")
+      (
+        error.message === "Ticket not found" ||
+        error.message === "Seller not found" ||
+        error.message === "Admin not found"
+      )
     ) {
       return sendJson(res, 404, {
         ok: false,
@@ -845,9 +968,13 @@ function verifyPassword(password, storedPassword) {
 function migrateStoredCredentials() {
   const db = getDb();
   let hasChanges = false;
+  const needsAdminCollectionMigration =
+    !Array.isArray(db.admins) ||
+    db.admins.length === 0 ||
+    getAdminAccounts(db).some((admin) => !admin.id);
 
   const nextMaster = { ...db.master };
-  const nextAdmin = { ...db.admin };
+  const nextAdmins = getAdminAccounts(db).map((admin) => ({ ...admin }));
   const nextSellers = db.sellers.map((seller) => ({ ...seller }));
 
   if (nextMaster.password && !isPasswordHash(nextMaster.password)) {
@@ -855,10 +982,12 @@ function migrateStoredCredentials() {
     hasChanges = true;
   }
 
-  if (nextAdmin.password && !isPasswordHash(nextAdmin.password)) {
-    nextAdmin.password = hashPassword(nextAdmin.password);
-    hasChanges = true;
-  }
+  nextAdmins.forEach((admin) => {
+    if (admin.password && !isPasswordHash(admin.password)) {
+      admin.password = hashPassword(admin.password);
+      hasChanges = true;
+    }
+  });
 
   nextSellers.forEach((seller) => {
     if (seller.password && !isPasswordHash(seller.password)) {
@@ -867,6 +996,10 @@ function migrateStoredCredentials() {
     }
   });
 
+  if (needsAdminCollectionMigration) {
+    hasChanges = true;
+  }
+
   if (!hasChanges) {
     return;
   }
@@ -874,7 +1007,8 @@ function migrateStoredCredentials() {
   updateDb((current) => ({
     ...current,
     master: nextMaster,
-    admin: nextAdmin,
+    admin: nextAdmins[0] || normalizeAdmin(DEFAULT_DB.admin, 0),
+    admins: nextAdmins,
     sellers: nextSellers,
   }));
 }
@@ -894,6 +1028,7 @@ function toSessionPayload(session = {}) {
   return {
     role: session.role,
     username: session.username,
+    adminId: session.adminId,
     sellerId: session.sellerId,
     sellerName: session.sellerName,
     token: session.token,
@@ -1032,8 +1167,56 @@ function ensureAnyRole(res, session, roles = []) {
   return false;
 }
 
+function getAdminAccounts(db = {}) {
+  if (Array.isArray(db.admins) && db.admins.length > 0) {
+    return db.admins;
+  }
+
+  if (db.admin) {
+    return [normalizeAdmin(db.admin, 0)];
+  }
+
+  return [normalizeAdmin(DEFAULT_DB.admin, 0)];
+}
+
+function getPrimaryAdmin(db = {}) {
+  return getAdminAccounts(db)[0] || normalizeAdmin(DEFAULT_DB.admin, 0);
+}
+
+function syncAdminAccounts(current, admins = []) {
+  const nextAdmins =
+    Array.isArray(admins) && admins.length > 0
+      ? admins.map((admin, index) => normalizeAdmin(admin, index))
+      : [normalizeAdmin(DEFAULT_DB.admin, 0)];
+
+  current.admins = nextAdmins;
+  current.admin = nextAdmins[0];
+  return current;
+}
+
+function findAdminAccountById(db = {}, adminId) {
+  return getAdminAccounts(db).find((admin) => String(admin.id) === String(adminId)) || null;
+}
+
+function findAdminAccountByUsername(db = {}, username) {
+  return (
+    getAdminAccounts(db).find(
+      (admin) => normalizeUsername(admin.username) === normalizeUsername(username)
+    ) || null
+  );
+}
+
+function findAdminAccountBySession(db = {}, session = {}) {
+  return (
+    findAdminAccountById(db, session.adminId) ||
+    findAdminAccountByUsername(db, session.username) ||
+    getPrimaryAdmin(db)
+  );
+}
+
 function toPublicAdmin(admin = {}) {
   return {
+    id: admin.id,
     username: admin.username || "",
   };
 }
@@ -1291,16 +1474,38 @@ function sanitizePositiveNumber(value) {
   return Number.isFinite(nextValue) ? nextValue : 0;
 }
 
-function sanitizeAdminPayload(input = {}) {
-  return {
-    username: String(input.username || "").trim(),
-    password: String(input.password || "").trim(),
-  };
+function sanitizeAdminPayload(input = {}, options = {}) {
+  const partial = Boolean(options.partial);
+  const payload = {};
+
+  if (!partial || input.username !== undefined) {
+    payload.username = String(input.username || "").trim();
+  }
+
+  if (!partial || input.password !== undefined) {
+    payload.password = String(input.password || "").trim();
+  }
+
+  return payload;
 }
 
 function validateAdminPayload(payload = {}) {
   if (!payload.username || !payload.password) {
     throw new ValidationError("Admin username and password are required");
+  }
+}
+
+function validateAdminUpdatePayload(payload = {}) {
+  if (payload.username !== undefined && !payload.username) {
+    throw new ValidationError("Admin username is required");
+  }
+
+  if (payload.password !== undefined && !payload.password) {
+    throw new ValidationError("Admin password is required");
+  }
+
+  if (payload.username === undefined && payload.password === undefined) {
+    throw new ValidationError("Change admin username or password");
   }
 }
 
@@ -1322,6 +1527,18 @@ function validatePasswordChangePayload(payload = {}) {
 
   if (payload.currentPassword === payload.newPassword) {
     throw new ValidationError("Use a different new password");
+  }
+}
+
+function ensureUniqueAdminUsername(admins = [], username, excludedId = null) {
+  const exists = admins.some(
+    (admin) =>
+      normalizeUsername(admin.username) === normalizeUsername(username) &&
+      String(admin.id) !== String(excludedId)
+  );
+
+  if (exists) {
+    throw new ConflictError("Admin username already exists");
   }
 }
 

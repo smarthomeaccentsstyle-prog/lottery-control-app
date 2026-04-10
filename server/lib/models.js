@@ -4,9 +4,12 @@ const DEFAULT_COMMISSION = {
 };
 
 const DEFAULT_ADMIN = {
+  id: 1,
   username: "admin",
   password: "1234",
 };
+
+const DEFAULT_ADMINS = [DEFAULT_ADMIN];
 
 const DEFAULT_MASTER = {
   username: "krishna",
@@ -29,6 +32,7 @@ const DEFAULT_SELLERS = [
 const DEFAULT_DB = {
   master: DEFAULT_MASTER,
   admin: DEFAULT_ADMIN,
+  admins: DEFAULT_ADMINS,
   sellers: DEFAULT_SELLERS,
   tickets: [],
   results: [],
@@ -42,6 +46,35 @@ const DEFAULT_DB = {
     },
   },
 };
+
+function normalizeAdmin(input = {}, index = 0) {
+  return {
+    id: input.id || Date.now() + index,
+    username: input.username || (index === 0 ? DEFAULT_ADMIN.username : `admin${index + 1}`),
+    password:
+      typeof input.password === "string"
+        ? input.password
+        : DEFAULT_ADMIN.password,
+  };
+}
+
+function createAdmin(input = {}, admins = []) {
+  return normalizeAdmin(
+    {
+      ...input,
+      id: input.id || Date.now(),
+    },
+    admins.length
+  );
+}
+
+function updateAdmin(existing, input = {}) {
+  return normalizeAdmin({
+    ...existing,
+    ...input,
+    id: existing.id,
+  });
+}
 
 function normalizeSeller(input = {}, index = 0) {
   return {
@@ -138,10 +171,13 @@ function formatDate(dateValue) {
 
 module.exports = {
   DEFAULT_DB,
+  createAdmin,
   createSeller,
   createTicket,
+  normalizeAdmin,
   normalizeSeller,
   normalizeTicket,
+  updateAdmin,
   updateSeller,
   updateTicket,
 };

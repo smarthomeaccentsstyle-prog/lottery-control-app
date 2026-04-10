@@ -764,6 +764,7 @@ button.admin-priority-card.active {
 }
 
 .master-business-panel,
+.master-admin-list-panel,
 .master-seller-list-panel {
   grid-column: 1 / -1;
 }

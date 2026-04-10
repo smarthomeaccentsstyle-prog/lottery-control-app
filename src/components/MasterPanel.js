@@ -3,14 +3,15 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import BrandMark from "./BrandMark.js";
 import { save } from "../untils/storage.js";
 import {
+  createMasterAdminApi,
   createSellerApi,
   fetchAdminOverviewApi,
-  fetchMasterAdminApi,
+  fetchMasterAdminsApi,
   fetchResultsApi,
   fetchSellersApi,
   fetchTicketsApi,
   mapResultsToLookup,
-  updateMasterAdminApi,
+  updateMasterAdminAccountApi,
   updateSellerApi,
 } from "../untils/api.js";
 import { DEFAULT_SELLERS, SELLER_LIST_KEY, getStoredSellers } from "../untils/adminStorage.js";
@@ -33,8 +34,9 @@ const emptyAdminForm = {
 };
 
 export default function MasterPanel({ session, onLogout }) {
-  const [adminAccount, setAdminAccount] = useState({ username: "" });
+  const [adminAccounts, setAdminAccounts] = useState([]);
   const [adminForm, setAdminForm] = useState(emptyAdminForm);
+  const [editingAdminId, setEditingAdminId] = useState(null);
   const [adminLoading, setAdminLoading] = useState(false);
   const [sellerForm, setSellerForm] = useState(emptySellerForm);
   const [editingSellerId, setEditingSellerId] = useState(null);
@@ -46,12 +48,7 @@ export default function MasterPanel({ session, onLogout }) {
     winResults: {},
   });
   const [businessSummary, setBusinessSummary] = useState(() => emptyBusinessSummary());
-
-  const activeSellerCount = useMemo(
-    () => sellers.filter((seller) => seller.active).length,
-    [sellers]
-  );
-  const inactiveSellerCount = sellers.length - activeSellerCount;
+  const primaryAdmin = adminAccounts[0] || { username: "" };
 
   const sellerPerformanceRows = useMemo(
     () => buildMasterSellerPerformanceRows(sellers, masterMetrics.tickets, masterMetrics.winResults),
@@ -100,16 +97,11 @@ export default function MasterPanel({ session, onLogout }) {
     save(SELLER_LIST_KEY, sellers);
   }, [sellers]);
 
-  const loadAdminAccount = useCallback(async () => {
+  const loadAdminAccounts = useCallback(async () => {
     try {
       setAdminLoading(true);
-      const response = await fetchMasterAdminApi();
-      const nextAdmin = normalizeAdminAccount(response.admin);
-      setAdminAccount(nextAdmin);
-      setAdminForm((current) => ({
-        username: current.username || nextAdmin.username,
-        password: "",
-      }));
+      const response = await fetchMasterAdminsApi();
+      setAdminAccounts(normalizeAdminAccounts(response.admins));
     } catch {
     } finally {
       setAdminLoading(false);
@@ -128,9 +120,9 @@ export default function MasterPanel({ session, onLogout }) {
   }, []);
 
   useEffect(() => {
-    loadAdminAccount();
+    loadAdminAccounts();
     loadSellers();
-  }, [loadAdminAccount, loadSellers]);
+  }, [loadAdminAccounts, loadSellers]);
 
   useEffect(() => {
     let active = true;
@@ -186,28 +178,49 @@ export default function MasterPanel({ session, onLogout }) {
   }, []);
 
   const handleSaveAdmin = async () => {
+    const trimmedUsername = adminForm.username.trim();
+    const trimmedPassword = adminForm.password.trim();
     const payload = {
-      username: adminForm.username.trim(),
-      password: adminForm.password.trim(),
+      username: trimmedUsername,
+      ...(trimmedPassword ? { password: trimmedPassword } : {}),
     };
 
-    if (!payload.username || !payload.password) {
-      window.alert("Admin username and password are required");
+    if (!trimmedUsername) {
+      window.alert("Admin username is required");
+      return;
+    }
+
+    if (!editingAdminId && !trimmedPassword) {
+      window.alert("Admin password is required");
+      return;
+    }
+
+    const duplicate = adminAccounts.find(
+      (admin) =>
+        normalizeUsername(admin.username) === normalizeUsername(trimmedUsername) &&
+        String(admin.id) !== String(editingAdminId)
+    );
+
+    if (duplicate) {
+      window.alert("Admin username already exists");
       return;
     }
 
     try {
       setAdminLoading(true);
-      const response = await updateMasterAdminApi(payload);
-      const nextAdmin = normalizeAdminAccount(response.admin);
-      setAdminAccount(nextAdmin);
-      setAdminForm({
-        username: nextAdmin.username,
-        password: "",
-      });
-      window.alert("Admin login updated");
+      const response = editingAdminId
+        ? await updateMasterAdminAccountApi(editingAdminId, payload)
+        : await createMasterAdminApi({
+            ...payload,
+            password: trimmedPassword,
+          });
+
+      setAdminAccounts(normalizeAdminAccounts(response.admins));
+      setEditingAdminId(null);
+      setAdminForm(emptyAdminForm);
+      window.alert(editingAdminId ? "Admin login updated" : "Admin login created");
     } catch (error) {
-      window.alert(error.message || "Admin update failed");
+      window.alert(error.message || "Admin save failed");
     } finally {
       setAdminLoading(false);
     }
@@ -279,6 +292,14 @@ export default function MasterPanel({ session, onLogout }) {
     });
   };
 
+  const startAdminEdit = (admin) => {
+    setEditingAdminId(admin.id);
+    setAdminForm({
+      username: admin.username,
+      password: "",
+    });
+  };
+
   const toggleSellerActive = async (sellerId) => {
     const currentSeller = sellers.find((seller) => seller.id === sellerId);
 
@@ -308,7 +329,7 @@ export default function MasterPanel({ session, onLogout }) {
               <BrandMark size="md" tagline="Premium ticket control system" />
               <span className="admin-chip">Master</span>
               <h1>Master Panel</h1>
-              <p>See admin business first, then control seller accounts with fewer taps.</p>
+              <p>See admin business first, then create or control admin and seller accounts with fewer taps.</p>
             </div>
 
             <div className="master-hero-actions">
@@ -320,17 +341,13 @@ export default function MasterPanel({ session, onLogout }) {
           </div>
 
           <div className="mini-summary master-summary-grid">
-            <MiniStatCard label="Admin Username" value={adminAccount.username || "--"} accent />
+            <MiniStatCard label="Primary Admin" value={primaryAdmin.username || "--"} accent />
+            <MiniStatCard label="Admin Accounts" value={String(adminAccounts.length)} />
             <MiniStatCard label="Total Sale" value={formatCurrency(businessSummary.sale)} />
             <MiniStatCard
               label="Admin Profit / Loss"
               value={formatCurrency(businessSummary.profitLoss)}
               status={businessSummary.profitLoss >= 0 ? "safe" : "danger"}
-            />
-            <MiniStatCard
-              label="Top Seller"
-              value={topSaleSeller ? topSaleSeller.name : "--"}
-              status={topSaleSeller ? getMetricTone(topSaleSeller.profitLoss, topSaleSeller.sale) : "warning"}
             />
           </div>
         </div>
@@ -339,12 +356,12 @@ export default function MasterPanel({ session, onLogout }) {
           <div className="glass-panel master-business-panel">
             <div className="panel-title-row">
               <strong>Admin Business View</strong>
-              <span>{businessLoading ? "Refreshing..." : "One admin total plus seller ranking"}</span>
+              <span>{businessLoading ? "Refreshing..." : "Shared admin business total plus seller ranking"}</span>
             </div>
 
             <p className="master-note">
-              This app runs one admin account, so the master view shows total admin sale,
-              payout, profit or loss, and which seller is driving the business.
+              All admin logins open the same admin panel and business scope, so this view shows
+              one shared admin total along with the seller performance ranking.
             </p>
 
             <div className="mini-summary master-business-grid">
@@ -404,12 +421,13 @@ export default function MasterPanel({ session, onLogout }) {
 
           <div className="glass-panel">
             <div className="panel-title-row">
-              <strong>Admin Control</strong>
-              <span>{adminLoading ? "Saving..." : "Master reset for admin login"}</span>
+              <strong>{editingAdminId ? "Edit Admin" : "Create Admin"}</strong>
+              <span>{adminLoading ? "Saving..." : "Master control for admin logins"}</span>
             </div>
 
             <p className="security-note">
-              Use this only when admin forgets the old password. Normal admin password changes should happen inside the admin panel with the current password.
+              Create a new admin here whenever you need one. Existing admins can still change
+              their own password inside the admin panel with the current password.
             </p>
 
             <div className="form-row">
@@ -430,7 +448,9 @@ export default function MasterPanel({ session, onLogout }) {
                 onChange={(event) =>
                   setAdminForm((current) => ({ ...current, password: event.target.value }))
                 }
-                placeholder="New Admin Password"
+                placeholder={
+                  editingAdminId ? "Leave blank to keep current password" : "Admin Password"
+                }
                 autoCapitalize="none"
                 autoCorrect="off"
                 autoComplete="new-password"
@@ -440,17 +460,15 @@ export default function MasterPanel({ session, onLogout }) {
 
             <div className="footer-actions">
               <button type="button" onClick={handleSaveAdmin}>
-                Save Admin
+                {editingAdminId ? "Update Admin" : "Create Admin"}
               </button>
               <button
                 type="button"
                 className="outline-btn"
-                onClick={() =>
-                  setAdminForm({
-                    username: adminAccount.username,
-                    password: "",
-                  })
-                }
+                onClick={() => {
+                  setEditingAdminId(null);
+                  setAdminForm(emptyAdminForm);
+                }}
               >
                 Reset
               </button>
@@ -547,6 +565,46 @@ export default function MasterPanel({ session, onLogout }) {
             </div>
           </div>
 
+          <div className="glass-panel master-admin-list-panel">
+            <div className="panel-title-row">
+              <strong>Admin Accounts</strong>
+              <span>{adminLoading ? "Syncing..." : `${adminAccounts.length} admin(s)`}</span>
+            </div>
+
+            <p className="master-note">
+              Every admin uses the normal <code>/admin</code> login page. The first row stays the
+              primary admin for backward compatibility, and master login stays only on <code>/krishna</code>.
+            </p>
+
+            <div className="ticket-list">
+              {adminAccounts.map((admin, index) => (
+                <div key={admin.id} className="saved-ticket">
+                  <div className="saved-top">
+                    <div>
+                      <strong>{admin.username}</strong>
+                      <span>{index === 0 ? "Primary admin login" : "Additional admin login"}</span>
+                    </div>
+                    <div className="saved-right">
+                      <span className="status-pill open">
+                        {index === 0 ? "PRIMARY" : "ADMIN"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="saved-line">
+                    Same risk board, same seller management, same shared admin business totals.
+                  </p>
+
+                  <div className="inline-actions">
+                    <button type="button" className="outline-btn" onClick={() => startAdminEdit(admin)}>
+                      Edit
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="glass-panel master-seller-list-panel">
             <div className="panel-title-row">
               <strong>Seller Accounts</strong>
@@ -621,10 +679,15 @@ function MasterRankCard({ title, primary, secondary, tone = "" }) {
   );
 }
 
-function normalizeAdminAccount(admin) {
-  return {
+function normalizeAdminAccounts(admins = []) {
+  if (!Array.isArray(admins)) {
+    return [];
+  }
+
+  return admins.map((admin, index) => ({
+    id: admin && admin.id ? admin.id : `admin-${index}`,
     username: admin && admin.username ? admin.username : "",
-  };
+  }));
 }
 
 function emptyBusinessSummary() {
