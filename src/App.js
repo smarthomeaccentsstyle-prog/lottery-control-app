@@ -78,6 +78,7 @@ const sellerMobileDockTabs = [
   "Claims",
   "Dashboard",
   "Results",
+  "Due",
 ];
 
 const emptySingle = () => Array(10).fill("");
@@ -181,6 +182,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [paidAmount, setPaidAmount] = useState(persisted.paidAmount || "");
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketFilter, setTicketFilter] = useState("ALL");
+  const [dueSearch, setDueSearch] = useState("");
   const [claimTicketSearch, setClaimTicketSearch] = useState("");
   const [claimDeskNotice, setClaimDeskNotice] = useState(null);
   const [resultDate, setResultDate] = useState(() => getTodayString());
@@ -676,6 +678,53 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     () => activeTickets.filter((ticket) => ticket.dueAmount > 0),
     [activeTickets]
   );
+  const dueSummary = useMemo(() => {
+    const outstanding = dueTickets.reduce((sum, ticket) => sum + Number(ticket.dueAmount || 0), 0);
+    const partialCount = dueTickets.filter((ticket) => Number(ticket.paidAmount || 0) > 0).length;
+    const customerCount = new Set(
+      dueTickets.map((ticket) =>
+        [String(ticket.customerName || "").trim(), String(ticket.customerPhone || "").trim()]
+          .filter(Boolean)
+          .join("|") || String(ticket.id)
+      )
+    ).size;
+
+    return {
+      outstanding,
+      ticketCount: dueTickets.length,
+      partialCount,
+      customerCount,
+      todayCount: dueTickets.filter((ticket) => ticket.date === todayString).length,
+    };
+  }, [dueTickets, todayString]);
+  const filteredDueTickets = useMemo(() => {
+    const query = dueSearch.trim().toLowerCase();
+    const sortedTickets = [...dueTickets].sort((left, right) => {
+      const dueDifference = Number(right.dueAmount || 0) - Number(left.dueAmount || 0);
+
+      if (dueDifference !== 0) {
+        return dueDifference;
+      }
+
+      return String(right.updatedAt || right.createdAt || "").localeCompare(
+        String(left.updatedAt || left.createdAt || "")
+      );
+    });
+
+    if (!query) {
+      return sortedTickets;
+    }
+
+    return sortedTickets.filter((ticket) => {
+      return (
+        String(ticket.id).includes(query) ||
+        safeLower(ticket.customerName).includes(query) ||
+        safeLower(ticket.customerPhone).includes(query) ||
+        safeLower(ticket.date).includes(query) ||
+        safeLower(formatDrawTime(ticket.drawTime)).includes(query)
+      );
+    });
+  }, [dueSearch, dueTickets]);
   const cancellableTicketCount = useMemo(
     () => activeTickets.filter((ticket) => canCancelTicket(ticket)).length,
     [activeTickets]
@@ -725,11 +774,20 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         action: () => setActiveTab("Claims"),
         active: activeTab === "Claims",
       },
+      {
+        title: "Due",
+        hint: "Unpaid and partial tickets",
+        value: `${dueSummary.ticketCount} | ${formatCurrency(dueSummary.outstanding)}`,
+        action: () => setActiveTab("Due"),
+        active: activeTab === "Due",
+      },
     ],
     [
       activeTab,
       cancellableTicketCount,
       claimableTickets.length,
+      dueSummary.outstanding,
+      dueSummary.ticketCount,
       drawTime,
       effectiveTicketDate,
       pendingClaimAmount,
@@ -1425,6 +1483,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 }}
                 onFourthChange={setFourth}
                 onJuriTextChange={setJuriText}
+                onOpenDue={() => setActiveTab("Due")}
                 onPaidAmountChange={(nextValue) =>
                   setPaidAmount(nextValue.replace(/[^\d]/g, ""))
                 }
@@ -1778,34 +1837,96 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
           <div className="glass-card">
             <div className="section-header">
               <h2>Due Management</h2>
-              <span>Track unpaid and partially paid ticket amounts.</span>
+              <span>Quick search, call customer, or jump to the saved ticket from one simple mobile view.</span>
             </div>
 
-            <div className="ticket-list">
-              {dueTickets.length === 0 ? (
-                <p className="empty">No due records.</p>
+            <div className="due-workspace">
+              <div className="mini-summary due-summary-grid">
+                <MiniBox label="Outstanding Due" value={formatCurrency(dueSummary.outstanding)} premium />
+                <MiniBox label="Due Tickets" value={dueSummary.ticketCount} />
+                <MiniBox label="Partial Paid" value={dueSummary.partialCount} />
+                <MiniBox label="Due Today" value={dueSummary.todayCount} />
+              </div>
+
+              <div className="due-search-card">
+                <input
+                  value={dueSearch}
+                  onChange={(event) => setDueSearch(event.target.value)}
+                  placeholder="Search by ticket, name, phone, date"
+                  aria-label="Search due tickets"
+                />
+                <div className="due-search-hint">
+                  <span>{dueSummary.customerCount} customer(s) with due</span>
+                  <span>{filteredDueTickets.length} result(s)</span>
+                </div>
+              </div>
+
+              {filteredDueTickets.length === 0 ? (
+                <div className="due-empty">
+                  {dueTickets.length === 0
+                    ? "No due records."
+                    : "No due ticket matches this search."}
+                </div>
               ) : (
-                dueTickets.map((ticket) => (
-                  <div key={ticket.id} className="saved-ticket">
-                    <div className="saved-top">
-                      <div>
-                        <strong>{ticket.customerName}</strong>
-                        <span>
-                          #{ticket.id} | {formatDrawTime(ticket.drawTime)} | {ticket.date}
-                        </span>
+                <div className="due-list">
+                  {filteredDueTickets.map((ticket) => (
+                    <div key={ticket.id} className="due-card">
+                      <div className="due-card-top">
+                        <div className="due-card-copy">
+                          <strong>{ticket.customerName}</strong>
+                          <span>
+                            Ticket #{ticket.id} | {formatDrawTime(ticket.drawTime)} | {ticket.date}
+                          </span>
+                          <span>{ticket.customerPhone ? `Phone ${ticket.customerPhone}` : "Phone not saved"}</span>
+                        </div>
+                        <div className="due-card-amount">
+                          <small>Outstanding</small>
+                          <strong>{formatCurrency(ticket.dueAmount)}</strong>
+                        </div>
                       </div>
-                      <div className="saved-right">
-                        <strong>{formatCurrency(ticket.dueAmount)}</strong>
-                        <span>Outstanding</span>
+
+                      <div className="due-card-meta">
+                        <div className="due-meta-cell">
+                          <span>Total</span>
+                          <strong>{formatCurrency(ticket.total)}</strong>
+                        </div>
+                        <div className="due-meta-cell">
+                          <span>Paid</span>
+                          <strong>{formatCurrency(ticket.paidAmount)}</strong>
+                        </div>
+                        <div className="due-meta-cell">
+                          <span>Status</span>
+                          <strong className={`due-status-chip ${ticket.paidAmount > 0 ? "partial" : "unpaid"}`}>
+                            {ticket.paidAmount > 0 ? "Partial" : "Unpaid"}
+                          </strong>
+                        </div>
+                        <div className="due-meta-cell">
+                          <span>Mode</span>
+                          <strong>{ticket.paymentMode}</strong>
+                        </div>
+                      </div>
+
+                      <div className="due-card-actions">
+                        <button
+                          type="button"
+                          className="outline-btn"
+                          onClick={() => {
+                            setTicketSearch(String(ticket.id));
+                            setTicketFilter("ALL");
+                            setActiveTab("Ticket Store");
+                          }}
+                        >
+                          Open Ticket
+                        </button>
+                        {ticket.customerPhone ? (
+                          <a className="outline-btn due-action-link" href={`tel:${ticket.customerPhone}`}>
+                            Call Customer
+                          </a>
+                        ) : null}
                       </div>
                     </div>
-
-                    <p className="saved-line">
-                      Total {formatCurrency(ticket.total)} | Paid {formatCurrency(ticket.paidAmount)} | Mode{" "}
-                      {ticket.paymentMode}
-                    </p>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           </div>
