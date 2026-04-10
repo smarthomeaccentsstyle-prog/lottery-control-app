@@ -259,19 +259,75 @@ function ManualRecentStrip({ canClear, editingKey, rows, onClearTicket, onDelete
 
 function ManualTotalsDock({
   canSave,
+  canPrintDraft,
   canUndo,
   formatCurrency,
+  formatDrawTime,
+  lastSavedTicket,
+  lastSavedTicketId,
   previewSummary,
   saving,
   onClearMode,
+  onDismissSavedTicket,
+  onPrintDraft,
+  onPrintSavedTicket,
   onSaveTicket,
   onUndoLast,
 }) {
   const singleAmount = Number(previewSummary.singleQty || 0) * SINGLE_RATE;
   const juriAmount = Number(previewSummary.juriQty || 0) * JURI_RATE;
+  const savedTicketMeta = [];
+
+  if (lastSavedTicket && lastSavedTicket.date) {
+    savedTicketMeta.push(lastSavedTicket.date);
+  }
+
+  if (lastSavedTicket && lastSavedTicket.drawTime) {
+    savedTicketMeta.push(formatDrawTime(lastSavedTicket.drawTime));
+  }
+
+  if (lastSavedTicket && lastSavedTicket.customerName) {
+    savedTicketMeta.push(lastSavedTicket.customerName);
+  }
+
+  if (lastSavedTicket && typeof lastSavedTicket.total === "number") {
+    savedTicketMeta.push(formatCurrency(lastSavedTicket.total));
+  }
 
   return (
     <div className="seller-manual-dock-wrap">
+      {lastSavedTicketId ? (
+        <div className="seller-manual-saved-ticket">
+          <div className="seller-manual-saved-copy">
+            <span>Last Saved Ticket</span>
+            <strong>
+              Ticket #{lastSavedTicket && lastSavedTicket.id ? lastSavedTicket.id : lastSavedTicketId}
+            </strong>
+            <small>
+              {savedTicketMeta.length > 0
+                ? savedTicketMeta.join(" | ")
+                : "Saved ticket is ready to reprint from this section."}
+            </small>
+          </div>
+          <div className="seller-manual-saved-actions">
+            <button
+              type="button"
+              className="outline-btn seller-entry-quiet-btn"
+              onClick={onPrintSavedTicket}
+            >
+              Reprint Saved
+            </button>
+            <button
+              type="button"
+              className="outline-btn seller-entry-quiet-btn"
+              onClick={onDismissSavedTicket}
+            >
+              Hide
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="seller-manual-totals-bar">
         <div className="seller-manual-total-cell">
           <span>Single Qty</span>
@@ -314,6 +370,14 @@ function ManualTotalsDock({
         </button>
         <button
           type="button"
+          className="outline-btn seller-entry-quiet-btn seller-entry-print-btn"
+          onClick={onPrintDraft}
+          disabled={!canPrintDraft || saving}
+        >
+          Print Draft
+        </button>
+        <button
+          type="button"
           className="seller-entry-save-btn"
           onClick={onSaveTicket}
           disabled={!canSave || saving}
@@ -328,6 +392,7 @@ function ManualTotalsDock({
 function SuperFastManualTool({
   activeMode,
   canClearTicket,
+  canPrintDraft,
   canSave,
   canUndo,
   currentDate,
@@ -336,14 +401,20 @@ function SuperFastManualTool({
   draft,
   editingKey,
   formatCurrency,
+  formatDrawTime,
   isEditing,
+  lastSavedTicket,
+  lastSavedTicketId,
   onAddRow,
   onClearMode,
   onClearTicket,
   onDeleteRow,
+  onDismissSavedTicket,
   onEditRow,
   onModeChange,
   onNumberChange,
+  onPrintDraft,
+  onPrintSavedTicket,
   onQuantityChange,
   onSaveTicket,
   onSelectDigit,
@@ -494,12 +565,19 @@ function SuperFastManualTool({
 
       <div ref={dockRef} className="seller-entry-dock seller-entry-dock-manual">
         <ManualTotalsDock
+          canPrintDraft={canPrintDraft}
           canSave={canSave}
           canUndo={canUndo}
           formatCurrency={formatCurrency}
+          formatDrawTime={formatDrawTime}
+          lastSavedTicket={lastSavedTicket}
+          lastSavedTicketId={lastSavedTicketId}
           previewSummary={previewSummary}
           saving={savingTicket}
           onClearMode={onClearMode}
+          onDismissSavedTicket={onDismissSavedTicket}
+          onPrintDraft={onPrintDraft}
+          onPrintSavedTicket={onPrintSavedTicket}
           onSaveTicket={onSaveTicket}
           onUndoLast={onUndoLast}
         />
@@ -522,12 +600,17 @@ export default function SellerFastEntryBoard({
   formatEntryCutoffTime,
   fourth,
   juriText,
+  lastSavedTicket,
+  lastSavedTicketId,
   maxBookingDate,
   onActiveEntryModeChange,
   onDateChange,
+  onDismissSavedTicket,
   onDrawTimeChange,
   onFourthChange,
   onJuriTextChange,
+  onPrintDraft,
+  onPrintSavedTicket,
   onReset,
   onSave,
   onThirdChange,
@@ -1058,6 +1141,7 @@ export default function SellerFastEntryBoard({
       <SuperFastManualTool
         activeMode={activeEntryMode}
         canClearTicket={hasPreviewRows}
+        canPrintDraft={hasPreviewRows}
         canSave={hasPreviewRows}
         canUndo={historyDepth > 0}
         currentDate={effectiveTicketDate}
@@ -1066,15 +1150,21 @@ export default function SellerFastEntryBoard({
         draft={activeInputs}
         editingKey={editState && editState.key}
         formatCurrency={formatCurrency}
+        formatDrawTime={formatDrawTime}
         isEditing={Boolean(editState && editState.mode === activeEntryMode)}
+        lastSavedTicket={lastSavedTicket}
+        lastSavedTicketId={lastSavedTicketId}
         numberRef={registerInputRef(activeEntryMode, "number")}
         onAddRow={handleManualSubmit}
         onClearMode={handleResetCurrentMode}
         onClearTicket={handleClearAll}
         onDeleteRow={handleDeleteRow}
+        onDismissSavedTicket={onDismissSavedTicket}
         onEditRow={handleEditRow}
         onModeChange={handleModeChange}
         onNumberChange={(value) => updateModeInput(activeEntryMode, "number", value)}
+        onPrintDraft={onPrintDraft}
+        onPrintSavedTicket={onPrintSavedTicket}
         onQuantityChange={(value) => updateModeInput(activeEntryMode, "quantity", value)}
         onSaveTicket={handleSaveTicket}
         onSelectDigit={handleManualDigitSelect}

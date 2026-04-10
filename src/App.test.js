@@ -48,6 +48,19 @@ function createDeferred() {
   };
 }
 
+function createPrintWindowMock() {
+  return {
+    document: {
+      open: jest.fn(),
+      write: jest.fn(),
+      close: jest.fn(),
+    },
+    focus: jest.fn(),
+    print: jest.fn(),
+    onload: null,
+  };
+}
+
 function createSuccessFetchMock() {
   return jest.fn((url) => {
     const endpoint = String(url);
@@ -254,6 +267,7 @@ test("renders seller login screen by default without demo credentials", async ()
 
   const root = await renderApp(container);
 
+  expect(container.textContent).toContain("TicketFlowX");
   expect(container.textContent).toContain("Seller Panel Login");
   expect(container.textContent).toContain("Seller");
   expect(container.textContent).not.toContain("Admin Login");
@@ -346,6 +360,7 @@ test("renders seller panel with seller session", async () => {
 
   const root = await renderApp(container);
 
+  expect(container.textContent).toContain("TicketFlowX");
   expect(container.textContent).toContain("Seller Panel");
   expect(container.textContent).toContain("Seller Ticket Entry");
   expect(container.textContent).toContain("Manual ticket entry with the same stable ticket engine, totals, and save flow.");
@@ -378,6 +393,7 @@ test("renders the manual fast-entry tool directly on seller ticket page", async 
   expect(container.textContent).toContain("Juri");
   expect(container.textContent).toContain("Undo Last");
   expect(container.textContent).toContain("Clear Current Mode");
+  expect(container.textContent).toContain("Print Draft");
   await unmountApp(root);
 });
 
@@ -808,6 +824,98 @@ test("saves a new ticket from the manual seller entry screen", async () => {
   expect(tickets[0].items[0].num).toBe("1");
   expect(tickets[0].items[0].qty).toBe(1);
 
+  await unmountApp(root);
+});
+
+test("prints from the new ticket section before and after save", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let tickets = [];
+  const baseFetchMock = createSuccessFetchMock();
+
+  global.fetch = jest.fn((url, options = {}) => {
+    const endpoint = String(url);
+    const method = options.method || "GET";
+
+    if (endpoint.includes("/tickets") && method === "POST") {
+      const payload = JSON.parse(options.body);
+      tickets = [{ ...payload }];
+      return createJsonResponse({ tickets });
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const draftPrintWindow = createPrintWindowMock();
+  const savedPrintWindow = createPrintWindowMock();
+  const openSpy = jest
+    .spyOn(window, "open")
+    .mockImplementationOnce(() => draftPrintWindow)
+    .mockImplementationOnce(() => savedPrintWindow);
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  await openManualTool(container);
+
+  await clickButton(findManualDigitButton(container, "1"));
+  setInputValue(getManualQuantityInput(container), "1");
+  await clickButton(findButtonContainingText(container, "Add 3H"));
+
+  const printDraftButton = findButtonByText(container, "Print Draft");
+
+  expect(printDraftButton).toBeTruthy();
+  expect(printDraftButton.disabled).toBe(false);
+
+  await clickButton(printDraftButton);
+
+  expect(openSpy).toHaveBeenCalledTimes(1);
+  expect(draftPrintWindow.document.write).toHaveBeenCalledWith(expect.stringContaining("Ticket Preview"));
+  expect(draftPrintWindow.document.write).toHaveBeenCalledWith(expect.stringContaining("Draft Ticket"));
+
+  act(() => {
+    draftPrintWindow.onload();
+  });
+
+  expect(draftPrintWindow.print).toHaveBeenCalledTimes(1);
+
+  await clickButton(findButtonByText(container, "Save Ticket"));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Last Saved Ticket");
+  expect(findButtonByText(container, "Reprint Saved")).toBeTruthy();
+
+  await clickButton(findButtonByText(container, "Reprint Saved"));
+
+  expect(openSpy).toHaveBeenCalledTimes(2);
+  expect(savedPrintWindow.document.write).toHaveBeenCalledWith(
+    expect.stringContaining("Customer Ticket")
+  );
+  expect(savedPrintWindow.document.write).toHaveBeenCalledWith(expect.stringContaining("Ticket #"));
+
+  act(() => {
+    savedPrintWindow.onload();
+  });
+
+  expect(savedPrintWindow.print).toHaveBeenCalledTimes(1);
+
+  openSpy.mockRestore();
   await unmountApp(root);
 });
 

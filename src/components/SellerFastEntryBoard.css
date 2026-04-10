@@ -1,9 +1,9 @@
 .seller-entry-shell {
-  --seller-entry-panel: rgba(9, 15, 29, 0.96);
-  --seller-entry-panel-border: rgba(82, 101, 136, 0.28);
-  --seller-entry-soft: #93a8ca;
-  --seller-entry-text: #f8fbff;
-  --seller-entry-accent: #79cbff;
+  --seller-entry-panel: rgba(12, 16, 25, 0.97);
+  --seller-entry-panel-border: rgba(84, 101, 136, 0.34);
+  --seller-entry-soft: #99a5bc;
+  --seller-entry-text: #f7f8fb;
+  --seller-entry-accent: #f5c842;
   --seller-entry-dock-space: 0px;
   --seller-entry-keyboard-offset: 0px;
   display: grid;
@@ -49,6 +49,7 @@
 .seller-manual-meta-pill span,
 .seller-manual-mode-copy span,
 .seller-manual-recent-head span,
+.seller-manual-saved-copy span,
 .seller-manual-selected-digit span,
 .seller-manual-chip-copy span,
 .seller-manual-total-cell span {
@@ -63,6 +64,7 @@
 .seller-manual-title strong,
 .seller-manual-mode-copy strong,
 .seller-manual-recent-head strong,
+.seller-manual-saved-copy strong,
 .seller-manual-selected-digit strong,
 .seller-manual-chip-copy strong,
 .seller-manual-total-cell strong {
@@ -109,24 +111,27 @@
 }
 
 .seller-manual-tool-third {
-  --seller-manual-accent: #38bdf8;
-  --seller-manual-accent-soft: rgba(56, 189, 248, 0.18);
+  --seller-manual-accent: #3b82f6;
+  --seller-manual-accent-soft: rgba(59, 130, 246, 0.18);
 }
 
 .seller-manual-tool-fourth {
-  --seller-manual-accent: #fb923c;
-  --seller-manual-accent-soft: rgba(251, 146, 60, 0.18);
+  --seller-manual-accent: #f5c842;
+  --seller-manual-accent-soft: rgba(245, 200, 66, 0.2);
 }
 
 .seller-manual-tool-juri {
-  --seller-manual-accent: #c084fc;
-  --seller-manual-accent-soft: rgba(192, 132, 252, 0.18);
+  --seller-manual-accent: #79b4ff;
+  --seller-manual-accent-soft: rgba(121, 180, 255, 0.18);
 }
 
 .seller-manual-head,
 .seller-manual-entry-shell,
 .seller-manual-mode-copy,
 .seller-manual-recent-head,
+.seller-manual-saved-ticket,
+.seller-manual-saved-copy,
+.seller-manual-saved-actions,
 .seller-manual-recent-actions,
 .seller-manual-chip-copy,
 .seller-manual-total-cell,
@@ -143,6 +148,7 @@
 .seller-manual-house-form,
 .seller-manual-house-actions,
 .seller-manual-recent-block,
+.seller-manual-saved-ticket,
 .seller-manual-chip-list,
 .seller-manual-chip,
 .seller-manual-chip-actions,
@@ -155,6 +161,7 @@
 .seller-manual-title small,
 .seller-manual-mode-copy small,
 .seller-manual-recent-head small,
+.seller-manual-saved-copy small,
 .seller-manual-recent-empty {
   color: var(--seller-entry-soft);
   line-height: 1.45;
@@ -166,6 +173,7 @@
 
 .seller-manual-meta-pill,
 .seller-manual-mode-copy,
+.seller-manual-saved-ticket,
 .seller-manual-selected-digit,
 .seller-manual-recent-block,
 .seller-manual-total-cell {
@@ -185,6 +193,7 @@
 }
 
 .seller-manual-mode-copy span,
+.seller-manual-saved-copy span,
 .seller-manual-selected-digit span,
 .seller-manual-chip-copy span {
   color: var(--seller-manual-accent);
@@ -309,6 +318,17 @@
   align-content: start;
 }
 
+.seller-manual-saved-ticket {
+  border-color: rgba(245, 200, 66, 0.32);
+  box-shadow:
+    inset 0 0 0 1px rgba(245, 200, 66, 0.08),
+    0 0 24px rgba(59, 130, 246, 0.08);
+}
+
+.seller-manual-saved-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .seller-manual-recent-empty {
   padding: 6px 0 0;
 }
@@ -337,10 +357,18 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.seller-entry-print-btn,
 .seller-entry-save-btn {
   min-height: 52px;
+}
+
+.seller-entry-print-btn {
+  grid-column: 1 / -1;
+}
+
+.seller-entry-save-btn {
   border: 0;
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  background: linear-gradient(135deg, #1f5ed8 0%, #3b82f6 60%, #f5c842 100%);
   color: #ffffff;
   font-size: 1rem;
   font-weight: 900;
@@ -354,6 +382,11 @@
   }
 
   .seller-manual-recent-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+
+  .seller-manual-saved-ticket {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
   }
@@ -389,9 +422,10 @@
   }
 
   .seller-manual-action-bar {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(220px, auto);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
+  .seller-entry-print-btn,
   .seller-entry-save-btn {
     grid-column: auto;
   }

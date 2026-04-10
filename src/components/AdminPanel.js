@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import BrandMark from "./BrandMark.js";
 import { save } from "../untils/storage.js";
 import {
   changePasswordApi,
@@ -748,6 +749,7 @@ export default function AdminPanel({ session, onLogout }) {
         <div className="glass-card admin-command-center">
           <div className="admin-command-top">
             <div className="admin-brand">
+              <BrandMark size="md" tagline="Premium ticket control system" />
               <span className="admin-chip">Admin</span>
               <h1>Risk Control</h1>
               <p>

@@ -1,3 +1,5 @@
+import BrandMark from "./BrandMark.js";
+
 export default function LoginScreen({
   role,
   username,
@@ -30,6 +32,7 @@ export default function LoginScreen({
     return (
       <div className="login-shell">
         <div className="login-card session-restore-card">
+          <BrandMark size="md" tagline="Fast, intelligent ticket operations" />
           <div className="login-kicker">{accessLabel}</div>
           <h1>Restoring Session</h1>
           <p className="login-copy">
@@ -69,6 +72,7 @@ export default function LoginScreen({
   return (
     <div className="login-shell">
       <div className="login-card">
+        <BrandMark size="lg" tagline="Fast, intelligent ticket operations" />
         <div className="login-kicker">{accessLabel}</div>
         <h1>{title}</h1>
 
