@@ -6,6 +6,22 @@
 
 :root {
   color-scheme: dark;
+  --tfx-bg: #0b0b0f;
+  --tfx-bg-alt: #12121a;
+  --tfx-surface: rgba(16, 19, 28, 0.94);
+  --tfx-surface-strong: rgba(10, 12, 18, 0.98);
+  --tfx-surface-soft: rgba(21, 26, 39, 0.9);
+  --tfx-border: rgba(66, 82, 114, 0.38);
+  --tfx-border-strong: rgba(104, 124, 168, 0.46);
+  --tfx-text: #f7f8fb;
+  --tfx-muted: #98a3b8;
+  --tfx-muted-soft: #6f7c95;
+  --tfx-blue: #3b82f6;
+  --tfx-blue-soft: rgba(59, 130, 246, 0.18);
+  --tfx-gold: #f5c842;
+  --tfx-gold-soft: rgba(245, 200, 66, 0.18);
+  --tfx-button-gradient: linear-gradient(135deg, #1f5ed8 0%, #3b82f6 56%, #f5c842 100%);
+  --tfx-panel-gradient: linear-gradient(180deg, rgba(20, 24, 35, 0.98), rgba(10, 12, 18, 0.98));
 }
 
 html,
@@ -19,12 +35,12 @@ body {
   margin: 0;
   max-width: 100%;
   overflow-x: hidden;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 28%),
-    linear-gradient(180deg, #080d18 0%, #0c1322 100%);
-  color: #eef4ff;
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 24%),
+    radial-gradient(circle at top right, rgba(245, 200, 66, 0.14), transparent 26%),
+    linear-gradient(180deg, var(--tfx-bg) 0%, var(--tfx-bg-alt) 100%);
+  color: var(--tfx-text);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   overscroll-behavior-x: none;
@@ -3823,5 +3839,283 @@ button.new-ticket-method-card {
   .fast-qty-modal-overlay {
     align-items: center;
     padding-bottom: 14px;
+  }
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brand-mark-icon {
+  flex: 0 0 auto;
+  width: 72px;
+  height: 72px;
+  filter: drop-shadow(0 10px 28px rgba(59, 130, 246, 0.16))
+    drop-shadow(0 0 18px rgba(245, 200, 66, 0.12));
+}
+
+.brand-mark-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.brand-mark-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  line-height: 0.95;
+}
+
+.brand-mark-ticketflow,
+.brand-mark-x {
+  letter-spacing: -0.04em;
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+
+.brand-mark-ticketflow {
+  color: var(--tfx-text);
+  font-size: clamp(1.5rem, 3vw, 2.15rem);
+  font-weight: 800;
+}
+
+.brand-mark-x {
+  color: var(--tfx-gold);
+  font-size: clamp(1.6rem, 3.2vw, 2.3rem);
+  font-weight: 900;
+  text-shadow:
+    0 0 16px rgba(245, 200, 66, 0.24),
+    0 0 18px rgba(59, 130, 246, 0.18);
+}
+
+.brand-mark-tagline {
+  color: var(--tfx-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brand-mark-md .brand-mark-icon {
+  width: 64px;
+  height: 64px;
+}
+
+.brand-mark-md .brand-mark-ticketflow {
+  font-size: clamp(1.35rem, 2.2vw, 1.8rem);
+}
+
+.brand-mark-md .brand-mark-x {
+  font-size: clamp(1.45rem, 2.3vw, 1.95rem);
+}
+
+.brand-mark-lg {
+  margin-bottom: 18px;
+}
+
+.brand-mark-lg .brand-mark-icon {
+  width: 78px;
+  height: 78px;
+}
+
+.brand-mark-lg .brand-mark-ticketflow {
+  font-size: clamp(1.7rem, 4vw, 2.35rem);
+}
+
+.brand-mark-lg .brand-mark-x {
+  font-size: clamp(1.9rem, 4.2vw, 2.55rem);
+}
+
+.glass-card,
+.glass-panel,
+.summary-card,
+.saved-ticket,
+.entered-list,
+.booking-banner,
+.editing-banner,
+.ticket-save-feedback,
+.mini-box,
+.preview-box,
+.result-card {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(245, 200, 66, 0.08), transparent 30%),
+    var(--tfx-panel-gradient);
+  border-color: var(--tfx-border);
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.hero p,
+.section-header span,
+.saved-top span,
+.saved-line,
+.saved-right span,
+.seller-dashboard-meta,
+.booking-banner span,
+.editing-banner span,
+.ticket-save-feedback span,
+.login-copy,
+.admin-brand p,
+.master-hero-top p,
+.seller-speed-copy p,
+.seller-speed-switcher span,
+.master-note,
+.panel-title-row span {
+  color: var(--tfx-muted);
+}
+
+.today-chip,
+.admin-command-pill,
+.master-pill {
+  background: rgba(17, 20, 30, 0.96);
+  border: 1px solid var(--tfx-border-strong);
+  color: var(--tfx-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+button.seller-priority-card,
+button.admin-priority-card,
+.admin-menu-btn {
+  background: linear-gradient(180deg, rgba(20, 24, 35, 0.98), rgba(11, 13, 20, 0.98));
+  border-color: var(--tfx-border);
+}
+
+button.seller-priority-card.active,
+.admin-menu-btn.active,
+button.admin-priority-card.active,
+.admin-draw-chip.active,
+.seller-dock-btn.active,
+.admin-dock-btn.active,
+.tab.active,
+button {
+  background: var(--tfx-button-gradient);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(18, 24, 38, 0.3);
+}
+
+.seller-priority-card span,
+.summary-card span,
+.admin-priority-card span,
+.mobile-tab-switcher span,
+.admin-mobile-switcher span,
+.saved-line,
+.saved-top span,
+.master-note {
+  color: var(--tfx-muted);
+}
+
+.outline-btn {
+  background: rgba(16, 20, 31, 0.92);
+  border: 1px solid rgba(104, 124, 168, 0.56);
+  color: #d9e4fb;
+  box-shadow: none;
+}
+
+.outline-btn:hover {
+  border-color: rgba(245, 200, 66, 0.52);
+}
+
+.login-card {
+  background:
+    radial-gradient(circle at top right, rgba(245, 200, 66, 0.16), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(20, 24, 35, 0.99), rgba(10, 12, 18, 0.99));
+  border-color: var(--tfx-border);
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(245, 200, 66, 0.06);
+}
+
+.login-kicker,
+.admin-chip {
+  background: linear-gradient(135deg, rgba(245, 200, 66, 0.16), rgba(59, 130, 246, 0.18));
+  color: #fbe7a1;
+  border: 1px solid rgba(245, 200, 66, 0.22);
+}
+
+.session-restore-status {
+  background: rgba(15, 19, 30, 0.9);
+  border-color: rgba(104, 124, 168, 0.32);
+}
+
+.session-restore-spinner {
+  border-color: rgba(245, 200, 66, 0.18);
+  border-top-color: var(--tfx-blue);
+}
+
+input,
+select,
+textarea,
+.seller-speed-switcher select {
+  background: rgba(14, 18, 28, 0.98);
+  border-color: rgba(82, 97, 132, 0.44);
+  color: var(--tfx-text);
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.seller-speed-switcher select:focus {
+  border-color: rgba(59, 130, 246, 0.9);
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.18),
+    0 0 0 1px rgba(245, 200, 66, 0.1);
+  background: rgba(18, 23, 35, 0.98);
+}
+
+.admin-risk-headline,
+.single-focus-banner,
+.admin-seller-hero,
+.new-ticket-method-note {
+  background:
+    linear-gradient(135deg, rgba(17, 22, 34, 0.98), rgba(11, 13, 20, 0.98));
+  border-color: rgba(83, 101, 139, 0.36);
+}
+
+.single-box:hover,
+.single-box:focus-visible,
+.single-box.active,
+.admin-selected-btn,
+.admin-seller-card.selected {
+  border-color: rgba(59, 130, 246, 0.78);
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.14),
+    inset 0 0 0 1px rgba(245, 200, 66, 0.08);
+  background: rgba(18, 24, 37, 0.98);
+}
+
+.seller-speed-copy,
+.admin-brand,
+.master-hero-top > div:first-child {
+  display: grid;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .brand-mark {
+    gap: 12px;
+  }
+
+  .brand-mark-icon {
+    width: 56px;
+    height: 56px;
+  }
+
+  .brand-mark-lg .brand-mark-icon {
+    width: 64px;
+    height: 64px;
+  }
+
+  .brand-mark-tagline {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
   }
 }

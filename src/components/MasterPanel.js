@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
+import BrandMark from "./BrandMark.js";
 import { save } from "../untils/storage.js";
 import {
   createSellerApi,
@@ -304,6 +305,7 @@ export default function MasterPanel({ session, onLogout }) {
         <div className="glass-card master-hero">
           <div className="master-hero-top">
             <div>
+              <BrandMark size="md" tagline="Premium ticket control system" />
               <span className="admin-chip">Master</span>
               <h1>Master Panel</h1>
               <p>See admin business first, then control seller accounts with fewer taps.</p>

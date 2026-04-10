@@ -22,6 +22,7 @@ import {
 import LoginScreen from "./components/LoginScreen.js";
 import AdminPanel from "./components/AdminPanel.js";
 import MasterPanel from "./components/MasterPanel.js";
+import BrandMark from "./components/BrandMark.js";
 import SellerFastEntryBoard from "./components/SellerFastEntryBoard.js";
 import TicketFormat from "./components/TicketFormat.js";
 import {
@@ -1151,6 +1152,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         {isFocusedEntryView ? (
           <div className="glass-card seller-speed-header">
             <div className="seller-speed-copy">
+              <BrandMark size="md" tagline="Fast, intelligent ticket operations" />
               <h1>Seller Panel</h1>
               <p>Fast mobile ticket entry with manual typing, live totals, and the same stable save flow.</p>
             </div>
@@ -1186,6 +1188,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
             <div className="hero">
               <div className="hero-row">
                 <div>
+                  <BrandMark size="md" tagline="Premium ticket control system" />
                   <h1>Seller Panel</h1>
                   <p>
                     Mobile seller panel for ticket entry, results, claim, due and reprint.

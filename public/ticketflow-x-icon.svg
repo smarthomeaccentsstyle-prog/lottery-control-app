@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">TicketFlow X App Icon</title>
+  <desc id="desc">Premium fintech-style icon with a flowing arrow, subtle number grid, and hidden X.</desc>
+  <defs>
+    <linearGradient id="panel" x1="18" y1="16" x2="110" y2="114" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#171923" />
+      <stop offset="52%" stop-color="#0f1119" />
+      <stop offset="100%" stop-color="#09090d" />
+    </linearGradient>
+    <linearGradient id="stroke" x1="18" y1="16" x2="110" y2="114" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#314f8f" />
+      <stop offset="48%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="#F5C842" />
+    </linearGradient>
+    <linearGradient id="flow" x1="28" y1="95" x2="100" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F5C842" />
+      <stop offset="48%" stop-color="#7CB8FF" />
+      <stop offset="100%" stop-color="#3B82F6" />
+    </linearGradient>
+    <linearGradient id="cross" x1="30" y1="28" x2="96" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F8DA7B" />
+      <stop offset="100%" stop-color="#B98612" />
+    </linearGradient>
+    <filter id="blueGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3.4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="goldGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect x="12" y="12" width="104" height="104" rx="28" fill="url(#panel)" stroke="url(#stroke)" stroke-width="2.4" />
+
+  <g opacity="0.18" stroke="#3b4867" stroke-width="1">
+    <path d="M36 26v76" />
+    <path d="M60 26v76" />
+    <path d="M84 26v76" />
+    <path d="M26 36h76" />
+    <path d="M26 60h76" />
+    <path d="M26 84h76" />
+  </g>
+
+  <g opacity="0.25" fill="#6f7c95" font-family="'SF Mono', 'Consolas', monospace" font-size="7.5" font-weight="700">
+    <text x="22" y="33">00</text>
+    <text x="46" y="33">24</text>
+    <text x="70" y="33">58</text>
+    <text x="22" y="57">11</text>
+    <text x="70" y="57">73</text>
+    <text x="22" y="81">42</text>
+    <text x="46" y="81">67</text>
+    <text x="70" y="81">99</text>
+  </g>
+
+  <path d="M31 32L95 96" fill="none" stroke="url(#cross)" stroke-linecap="round" stroke-width="7" filter="url(#goldGlow)" />
+  <path d="M30 92C42 86 52 77 61 67C71 56 81 47 95 36" fill="none" stroke="url(#flow)" stroke-linecap="round" stroke-width="9" filter="url(#blueGlow)" />
+  <path d="M88 32L99 35L92 46" fill="none" stroke="#3B82F6" stroke-linecap="round" stroke-linejoin="round" stroke-width="5" filter="url(#blueGlow)" />
+  <circle cx="60" cy="67" r="4.5" fill="#0f1119" stroke="#F5C842" stroke-width="2" />
+</svg>

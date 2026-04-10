@@ -29,7 +29,7 @@ class StartupErrorBoundary extends React.Component {
       return (
         <div style={fallbackStyles.page}>
           <div style={fallbackStyles.card}>
-            <h1 style={fallbackStyles.title}>Seller Panel Could Not Open</h1>
+            <h1 style={fallbackStyles.title}>TicketFlow X Could Not Open</h1>
             <p style={fallbackStyles.text}>
               The app hit a startup error. This is often caused by old local browser data from a previous version.
             </p>
@@ -54,21 +54,22 @@ const fallbackStyles = {
     margin: 0,
     padding: "24px",
     background:
-      "radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 28%), linear-gradient(180deg, #080d18 0%, #0c1322 100%)",
-    color: "#eef4ff",
+      "radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 24%), radial-gradient(circle at top right, rgba(245, 200, 66, 0.14), transparent 28%), linear-gradient(180deg, #0b0b0f 0%, #12121a 100%)",
+    color: "#f7f8fb",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFamily: '"Avenir Next", "Segoe UI", system-ui, sans-serif',
   },
   card: {
     width: "100%",
     maxWidth: "560px",
     padding: "28px",
     borderRadius: "24px",
-    background: "rgba(18, 25, 39, 0.94)",
-    border: "1px solid rgba(29, 40, 64, 0.92)",
-    boxShadow: "0 18px 36px rgba(0, 0, 0, 0.2)",
+    background:
+      "radial-gradient(circle at top right, rgba(245, 200, 66, 0.16), transparent 28%), radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.16), transparent 34%), linear-gradient(180deg, rgba(20, 24, 35, 0.99), rgba(10, 12, 18, 0.99))",
+    border: "1px solid rgba(66, 82, 114, 0.38)",
+    boxShadow: "0 22px 48px rgba(0, 0, 0, 0.34)",
   },
   title: {
     margin: "0 0 12px",
@@ -77,7 +78,7 @@ const fallbackStyles = {
   },
   text: {
     margin: "0 0 12px",
-    color: "#b8c4db",
+    color: "#98a3b8",
     lineHeight: 1.6,
   },
   button: {
@@ -86,7 +87,7 @@ const fallbackStyles = {
     padding: "12px 18px",
     borderRadius: "14px",
     border: "1px solid transparent",
-    background: "linear-gradient(135deg, #2d63ea, #3b82f6)",
+    background: "linear-gradient(135deg, #1f5ed8 0%, #3b82f6 56%, #f5c842 100%)",
     color: "#ffffff",
     fontWeight: 700,
     cursor: "pointer",
