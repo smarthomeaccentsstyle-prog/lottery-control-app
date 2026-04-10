@@ -1,7 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 
-const { DEFAULT_DB, normalizeSeller, normalizeTicket } = require("./models");
+const {
+  DEFAULT_DB,
+  normalizeAdmin,
+  normalizeSeller,
+  normalizeTicket,
+} = require("./models");
 
 const APP_ROOT = path.join(__dirname, "..", "..");
 const DEFAULT_DATA_DIR = path.join(__dirname, "..", "data");
@@ -198,12 +203,22 @@ function writeJsonFileAtomic(filePath, payload) {
 function buildDbSnapshot(input = {}, fallback = DEFAULT_DB) {
   const source = isPlainObject(input) ? input : {};
   const base = isPlainObject(fallback) ? fallback : DEFAULT_DB;
+  const legacyAdmin = mergeCredentials(source.admin, base.admin, DEFAULT_DB.admin);
+  const sourceAdmins =
+    Array.isArray(source.admins) && source.admins.length > 0
+      ? source.admins
+      : isPlainObject(source.admin)
+        ? [legacyAdmin]
+        : base.admins;
+  const admins = normalizeAdminList(sourceAdmins, base.admins, legacyAdmin);
+  const primaryAdmin = admins[0] || normalizeAdmin(legacyAdmin, 0);
 
   return {
     ...base,
     ...source,
     master: mergeCredentials(source.master, base.master, DEFAULT_DB.master),
-    admin: mergeCredentials(source.admin, base.admin, DEFAULT_DB.admin),
+    admin: primaryAdmin,
+    admins,
     sellers: normalizeSellerList(source.sellers, base.sellers),
     tickets: normalizeTicketList(source.tickets, base.tickets),
     results: Array.isArray(source.results)
@@ -213,6 +228,16 @@ function buildDbSnapshot(input = {}, fallback = DEFAULT_DB) {
         : [],
     settings: mergeSettings(source.settings, base.settings, DEFAULT_DB.settings),
   };
+}
+
+function normalizeAdminList(list, fallback = [], legacyAdmin = DEFAULT_DB.admin) {
+  const source = Array.isArray(list) && list.length > 0 ? list : [];
+  const fallbackList = Array.isArray(fallback) && fallback.length > 0 ? fallback : [];
+  const input = source.length > 0 ? source : fallbackList;
+
+  return (input.length > 0 ? input : [legacyAdmin]).map((admin, index) =>
+    normalizeAdmin(admin, index)
+  );
 }
 
 function normalizeSellerList(list, fallback = []) {
@@ -318,13 +343,20 @@ function scoreDbSnapshot(snapshot) {
       seller.username &&
       !DEFAULT_DB.sellers.some((defaultSeller) => defaultSeller.username === seller.username)
   ).length;
-  const customAdmin =
-    snapshot &&
-    snapshot.admin &&
-    snapshot.admin.username &&
-    snapshot.admin.username !== DEFAULT_DB.admin.username
-      ? 2
-      : 0;
+  const adminAccounts =
+    snapshot && Array.isArray(snapshot.admins) && snapshot.admins.length > 0
+      ? snapshot.admins
+      : snapshot && snapshot.admin
+        ? [snapshot.admin]
+        : [];
+  const customAdmin = adminAccounts.some(
+    (admin) =>
+      admin &&
+      admin.username &&
+      admin.username !== DEFAULT_DB.admin.username
+  )
+    ? 2
+    : 0;
   const customMaster =
     snapshot &&
     snapshot.master &&

@@ -64,6 +64,10 @@ function createPrintWindowMock() {
 function createSuccessFetchMock() {
   return jest.fn((url) => {
     const endpoint = String(url);
+    const adminAccounts = [
+      { id: 1, username: "saikat" },
+      { id: 2, username: "office" },
+    ];
 
     if (endpoint.includes("/bootstrap")) {
       return createJsonResponse({ sellers: [PUBLIC_SELLER] });
@@ -116,8 +120,12 @@ function createSuccessFetchMock() {
       });
     }
 
+    if (endpoint.includes("/master/admins")) {
+      return createJsonResponse({ admins: adminAccounts });
+    }
+
     if (endpoint.includes("/master/admin")) {
-      return createJsonResponse({ admin: { username: "saikat" } });
+      return createJsonResponse({ admin: adminAccounts[0], admins: adminAccounts });
     }
 
     if (endpoint.includes("/sellers")) {
@@ -1410,9 +1418,10 @@ test("renders master panel with master session", async () => {
 
   expect(container.textContent).toContain("Master Panel");
   expect(container.textContent).toContain("Admin Business View");
-  expect(container.textContent).toContain("Admin Control");
+  expect(container.textContent).toContain("Create Admin");
   expect(container.textContent).toContain("Seller Accounts");
-  expect(container.textContent).toContain("Admin Username");
+  expect(container.textContent).toContain("Admin Accounts");
+  expect(container.textContent).toContain("Primary Admin");
   expect(container.textContent).toContain("Highest Sale Seller");
   expect(container.textContent).toContain("Profit / Loss");
   await unmountApp(root);
