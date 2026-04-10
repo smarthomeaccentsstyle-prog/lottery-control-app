@@ -28,25 +28,6 @@ Health check:
 http://localhost:4000/api/health
 ```
 
-## OpenAI Scan Setup
-
-Handwritten ticket scan uses the server-side OpenAI API key.
-
-Set these before starting the backend:
-
-```bash
-export OPENAI_API_KEY=your_openai_api_key
-export OPENAI_SCAN_MODEL=gpt-4.1
-npm run server
-```
-
-You can also place them in a project-root `.env` or `.env.local` file:
-
-```bash
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_SCAN_MODEL=gpt-4.1
-```
-
 ## Multi-Mobile LAN Start
 
 If many phones will use the app on the same Wi-Fi, use this flow:
@@ -123,7 +104,6 @@ Body:
 - `GET /api/tickets`
 - `POST /api/tickets`
 - `PATCH /api/tickets/:id`
-- `POST /api/scan-ticket`
 
 Optional query filters:
 - `date`

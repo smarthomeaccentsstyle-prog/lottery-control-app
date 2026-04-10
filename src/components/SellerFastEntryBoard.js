@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "./SellerFastEntryBoard.css";
-import TicketScanPanel from "./TicketScanPanel.js";
-import TicketScanReview from "./TicketScanReview.js";
 import {
   getJuriQuantity,
   normalizeSingleDraft,
@@ -11,23 +9,12 @@ import {
   sanitizeFastQuantity,
   upsertJuriText,
 } from "../untils/fastEntry.js";
-import { scanTicketApi } from "../untils/api.js";
-import {
-  canAutoApplyScan,
-  getFirstScannedMode,
-  getScannedRowCount,
-  mapScanResultToDraft,
-  normalizeScanResponse,
-  readImageFileAsDataUrl,
-} from "../untils/ticketScan.js";
 
 const SINGLE_RATE = 11;
 const JURI_RATE = 10;
-const MAX_SCAN_FILE_SIZE = 8 * 1024 * 1024;
 const EMPTY_MODE_INPUT = {
   number: "",
   quantity: "",
-  quickText: "",
 };
 
 const MODE_META = {
@@ -36,42 +23,20 @@ const MODE_META = {
     shortLabel: "3H",
     digits: 1,
     rate: SINGLE_RATE,
-    quickExample: "3-10\n2-8\n9-7",
-    quickHelp: "Direct lines like 3-10",
-    numberLabel: "Digit",
   },
   fourth: {
     label: "4th House",
     shortLabel: "4H",
     digits: 1,
     rate: SINGLE_RATE,
-    quickExample: "7-15\n5-27\n6-22",
-    quickHelp: "Direct lines like 7-15",
-    numberLabel: "Digit",
   },
   juri: {
     label: "Juri",
     shortLabel: "J",
     digits: 2,
     rate: JURI_RATE,
-    quickExample: "08-10\n55-4\n90-21",
-    quickHelp: "Direct lines like 08-10",
-    numberLabel: "Number",
   },
 };
-const ENTRY_TOOL_META = {
-  scan: {
-    label: "Scan Entry",
-    subtitle: "Use camera or gallery",
-    description: "Keep the current AI scan workflow for handwritten ticket photos.",
-  },
-  manual: {
-    label: "Super Fast Manual Entry",
-    subtitle: "Thumb-first typing",
-    description: "Use the new ultra-fast typing tool for one-hand seller entry.",
-  },
-};
-const ENTRY_TOOL_ORDER = ["scan", "manual"];
 
 function buildInputState() {
   return {
@@ -116,55 +81,6 @@ function createNormalizedDraftSnapshot(draft) {
     third: normalizeSingleDraft(draft && draft.third),
     fourth: normalizeSingleDraft(draft && draft.fourth),
     juriText: String((draft && draft.juriText) || ""),
-  };
-}
-
-function splitQuickTokens(value) {
-  return String(value || "")
-    .replace(/\r/g, "\n")
-    .split(/[\n,]+/)
-    .flatMap((chunk) => chunk.trim().split(/\s+/))
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-function parseFastHouseText(value) {
-  const invalid = [];
-  const lookup = new Map();
-  const order = [];
-
-  splitQuickTokens(value).forEach((token) => {
-    const normalizedToken = token.replace(/[=:xX]/g, "-");
-    const match = normalizedToken.match(/^(\d)-(\d+)$/);
-
-    if (!match) {
-      invalid.push(token);
-      return;
-    }
-
-    const number = sanitizeFastDigits(match[1], 1);
-    const qty = Number(sanitizeFastQuantity(match[2], 5) || 0);
-
-    if (number === "" || Number(number) > 9 || qty <= 0) {
-      invalid.push(token);
-      return;
-    }
-
-    if (!lookup.has(number)) {
-      lookup.set(number, qty);
-      order.push(number);
-      return;
-    }
-
-    lookup.set(number, lookup.get(number) + qty);
-  });
-
-  return {
-    entries: order.map((number) => ({
-      num: number,
-      qty: lookup.get(number),
-    })),
-    invalid,
   };
 }
 
@@ -236,20 +152,6 @@ function scrollFieldIntoView(node) {
   }, 120);
 }
 
-function scrollSectionIntoView(node) {
-  if (!node || typeof node.scrollIntoView !== "function") {
-    return;
-  }
-
-  window.setTimeout(() => {
-    node.scrollIntoView({
-      block: "start",
-      inline: "nearest",
-      behavior: "smooth",
-    });
-  }, 80);
-}
-
 function ModeTabs({ activeMode, onChange }) {
   return (
     <div className="seller-entry-tabs" role="tablist" aria-label="Entry mode">
@@ -273,31 +175,6 @@ function ModeTabs({ activeMode, onChange }) {
   );
 }
 
-function EntryToolSwitcher({ activeTool, onChange }) {
-  return (
-    <div className="seller-entry-tool-switcher" role="tablist" aria-label="Entry tool">
-      {ENTRY_TOOL_ORDER.map((tool) => {
-        const meta = ENTRY_TOOL_META[tool];
-
-        return (
-          <button
-            key={tool}
-            type="button"
-            role="tab"
-            aria-selected={activeTool === tool}
-            className={`seller-entry-tool-tab ${activeTool === tool ? "active" : ""}`}
-            onClick={() => onChange(tool)}
-          >
-            <span>{meta.subtitle}</span>
-            <strong>{meta.label}</strong>
-            <small>{meta.description}</small>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function ModeStat({ label, value }) {
   return (
     <div className="seller-entry-mode-stat">
@@ -305,124 +182,6 @@ function ModeStat({ label, value }) {
       <strong>{value}</strong>
     </div>
   );
-}
-
-function FastHouseEntry({
-  mode,
-  draft,
-  stats,
-  formatCurrency,
-  isEditing,
-  onNumberChange,
-  onQuantityChange,
-  onQuickTextChange,
-  onStructuredSubmit,
-  onQuickSubmit,
-  onFocusField,
-  numberRef,
-  quantityRef,
-  quickTextRef,
-}) {
-  const meta = getModeMeta(mode);
-  const canSubmit = draft.number.length === meta.digits && Number(draft.quantity || 0) > 0;
-  const canSubmitQuick = splitQuickTokens(draft.quickText).length > 0;
-
-  return (
-    <section className="seller-entry-mode-panel">
-      <div className="seller-entry-mode-head">
-        <div className="seller-entry-mode-copy">
-          <span>{meta.label}</span>
-          <strong>{isEditing ? "Update the selected row" : "Add rows fast"}</strong>
-          <small>{meta.quickHelp}. Quantity updates instantly at ₹{meta.rate} each.</small>
-        </div>
-
-        <div className="seller-entry-mode-stats">
-          <ModeStat label="Rows" value={stats.rows} />
-          <ModeStat label="Qty" value={stats.qty} />
-          <ModeStat label="Amount" value={formatCurrency(stats.amount)} />
-        </div>
-      </div>
-
-      <div className="seller-entry-quick-form">
-        <label className="seller-entry-field">
-          <span>{meta.numberLabel}</span>
-          <input
-            ref={numberRef}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            enterKeyHint="next"
-            maxLength={meta.digits}
-            value={draft.number}
-            placeholder="0"
-            onChange={(event) => onNumberChange(event.target.value)}
-            onFocus={(event) => onFocusField(event.currentTarget)}
-          />
-        </label>
-
-        <label className="seller-entry-field">
-          <span>Quantity</span>
-          <input
-            ref={quantityRef}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            enterKeyHint="done"
-            value={draft.quantity}
-            placeholder="0"
-            onChange={(event) => onQuantityChange(event.target.value)}
-            onFocus={(event) => onFocusField(event.currentTarget)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                onStructuredSubmit();
-              }
-            }}
-          />
-        </label>
-
-        <button
-          type="button"
-          className="seller-entry-add-btn"
-          onClick={onStructuredSubmit}
-          disabled={!canSubmit}
-        >
-          {isEditing ? "Update Row" : "Add Row"}
-        </button>
-      </div>
-
-      <div className="seller-entry-batch-box">
-        <div className="seller-entry-batch-head">
-          <div>
-            <strong>Quick lines</strong>
-            <span>One per line or separated by spaces</span>
-          </div>
-          <small>{meta.quickExample.replace(/\n/g, " · ")}</small>
-        </div>
-
-        <textarea
-          ref={quickTextRef}
-          value={draft.quickText}
-          placeholder={meta.quickExample}
-          onChange={(event) => onQuickTextChange(event.target.value)}
-          onFocus={(event) => onFocusField(event.currentTarget)}
-        />
-
-        <button
-          type="button"
-          className="seller-entry-inline-btn"
-          onClick={onQuickSubmit}
-          disabled={!canSubmitQuick}
-        >
-          Add Lines
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function FastJuriEntry(props) {
-  return <FastHouseEntry {...props} mode="juri" />;
 }
 
 function HouseDigitPad({ selectedDigit, onSelectDigit }) {
@@ -442,15 +201,25 @@ function HouseDigitPad({ selectedDigit, onSelectDigit }) {
   );
 }
 
-function ManualRecentStrip({ editingKey, rows, onDelete, onEdit }) {
+function ManualRecentStrip({ canClear, editingKey, rows, onClearTicket, onDelete, onEdit }) {
   return (
     <section className="seller-manual-recent-block">
       <div className="seller-manual-recent-head">
         <div>
-          <span>Recent Entry Strip</span>
+          <span>Current Ticket Rows</span>
           <strong>{rows.length > 0 ? `${rows.length} active row(s)` : "No rows entered yet"}</strong>
         </div>
-        <small>Edit or delete without leaving the current tool.</small>
+        <div className="seller-manual-recent-actions">
+          <small>Edit or delete without leaving this screen.</small>
+          <button
+            type="button"
+            className="outline-btn seller-entry-quiet-btn"
+            onClick={onClearTicket}
+            disabled={!canClear}
+          >
+            Clear Ticket
+          </button>
+        </div>
       </div>
 
       {rows.length > 0 ? (
@@ -527,13 +296,28 @@ function ManualTotalsDock({
       </div>
 
       <div className="seller-manual-action-bar">
-        <button type="button" className="outline-btn seller-entry-quiet-btn" onClick={onUndoLast} disabled={!canUndo || saving}>
+        <button
+          type="button"
+          className="outline-btn seller-entry-quiet-btn"
+          onClick={onUndoLast}
+          disabled={!canUndo || saving}
+        >
           Undo Last
         </button>
-        <button type="button" className="outline-btn seller-entry-quiet-btn" onClick={onClearMode} disabled={saving}>
+        <button
+          type="button"
+          className="outline-btn seller-entry-quiet-btn"
+          onClick={onClearMode}
+          disabled={saving}
+        >
           Clear Current Mode
         </button>
-        <button type="button" className="seller-entry-save-btn" onClick={onSaveTicket} disabled={!canSave || saving}>
+        <button
+          type="button"
+          className="seller-entry-save-btn"
+          onClick={onSaveTicket}
+          disabled={!canSave || saving}
+        >
           {saving ? "Saving..." : "Save Ticket"}
         </button>
       </div>
@@ -543,32 +327,33 @@ function ManualTotalsDock({
 
 function SuperFastManualTool({
   activeMode,
+  canClearTicket,
+  canSave,
+  canUndo,
   currentDate,
   currentDrawLabel,
-  draft,
   dockRef,
+  draft,
   editingKey,
   formatCurrency,
   isEditing,
-  previewRows,
-  recentRows,
-  savingTicket,
-  stats,
   onAddRow,
+  onClearMode,
+  onClearTicket,
   onDeleteRow,
   onEditRow,
   onModeChange,
   onNumberChange,
   onQuantityChange,
-  onSelectDigit,
   onSaveTicket,
+  onSelectDigit,
   onUndoLast,
-  onClearMode,
-  canSave,
-  canUndo,
-  numberRef,
-  quantityRef,
   previewSummary,
+  quantityRef,
+  recentRows,
+  savingTicket,
+  stats,
+  numberRef,
 }) {
   const meta = getModeMeta(activeMode);
   const canSubmit = draft.number.length === meta.digits && Number(draft.quantity || 0) > 0;
@@ -577,12 +362,6 @@ function SuperFastManualTool({
     <div className="seller-manual-layout">
       <section className={`seller-entry-panel seller-manual-tool seller-manual-tool-${activeMode}`}>
         <div className="seller-manual-head">
-          <div className="seller-manual-title">
-            <span>Manual Fast Entry</span>
-            <strong>Super Fast Manual Entry</strong>
-            <small>Calculator-speed ticket typing with the same ticket engine and save flow.</small>
-          </div>
-
           <div className="seller-manual-meta">
             <div className="seller-manual-meta-pill">
               <span>Date</span>
@@ -600,11 +379,11 @@ function SuperFastManualTool({
         <div className={`seller-manual-entry-shell seller-manual-entry-shell-${activeMode}`}>
           <div className="seller-manual-mode-copy">
             <span>{meta.label}</span>
-            <strong>{isEditing ? "Update current row" : "Add rows at POS speed"}</strong>
+            <strong>{isEditing ? "Update current row" : "Add rows"}</strong>
             <small>
               {activeMode === "juri"
-                ? "Type a two-digit number and quantity. Fields reset fast for the next row."
-                : "Tap a digit, type quantity, and add. Quantity clears while the selected digit stays ready."}
+                ? "Type a two-digit number and quantity, then add the row."
+                : "Tap a digit, type quantity, and add the row."}
             </small>
           </div>
 
@@ -651,7 +430,12 @@ function SuperFastManualTool({
                 />
               </label>
 
-              <button type="button" className="seller-manual-primary-btn" onClick={onAddRow} disabled={!canSubmit}>
+              <button
+                type="button"
+                className="seller-manual-primary-btn"
+                onClick={onAddRow}
+                disabled={!canSubmit}
+              >
                 {isEditing ? "Update Row" : "Add Row"}
               </button>
             </div>
@@ -685,7 +469,12 @@ function SuperFastManualTool({
                   />
                 </label>
 
-                <button type="button" className="seller-manual-primary-btn" onClick={onAddRow} disabled={!canSubmit}>
+                <button
+                  type="button"
+                  className="seller-manual-primary-btn"
+                  onClick={onAddRow}
+                  disabled={!canSubmit}
+                >
                   {isEditing ? "Update Row" : `Add ${meta.shortLabel}`}
                 </button>
               </div>
@@ -694,8 +483,10 @@ function SuperFastManualTool({
         </div>
 
         <ManualRecentStrip
+          canClear={canClearTicket}
           editingKey={editingKey}
           rows={recentRows}
+          onClearTicket={onClearTicket}
           onDelete={onDeleteRow}
           onEdit={onEditRow}
         />
@@ -713,101 +504,6 @@ function SuperFastManualTool({
           onUndoLast={onUndoLast}
         />
       </div>
-    </div>
-  );
-}
-
-function EntryPreviewList({
-  rows,
-  activeMode,
-  editingKey,
-  formatCurrency,
-  onEdit,
-  onDelete,
-}) {
-  if (rows.length === 0) {
-    return (
-      <div className="seller-entry-preview-empty">
-        <strong>No rows yet</strong>
-        <span>Start typing number and quantity. Every row appears here instantly.</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="seller-entry-preview-list" aria-label="Ticket preview">
-      {rows.map((row) => (
-        <div
-          key={row.key}
-          className={`seller-entry-preview-row ${row.mode === activeMode ? "mode-active" : ""} ${
-            editingKey === row.key ? "editing" : ""
-          }`}
-        >
-          <div className="seller-entry-preview-main">
-            <span className="seller-entry-preview-tag">{row.tag}</span>
-            <div className="seller-entry-preview-copy">
-              <strong>
-                {row.tag} {row.number} × {row.qty}
-              </strong>
-              <small>{formatCurrency(row.amount)}</small>
-            </div>
-          </div>
-
-          <div className="seller-entry-preview-actions">
-            <button type="button" aria-label={`Edit ${row.tag} ${row.number}`} onClick={() => onEdit(row)}>
-              ✎
-            </button>
-            <button type="button" aria-label={`Delete ${row.tag} ${row.number}`} onClick={() => onDelete(row)}>
-              ✕
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function StickyTicketSummary({ formatCurrency, previewRowsCount, previewSummary }) {
-  const totalQty = Number(previewSummary.singleQty || 0) + Number(previewSummary.juriQty || 0);
-
-  return (
-    <div className="seller-entry-summary-strip">
-      <div className="seller-entry-summary-total">
-        <span>Grand Total</span>
-        <strong>{formatCurrency(previewSummary.total || 0)}</strong>
-        <small>
-          {previewRowsCount} row(s) | Qty {totalQty}
-        </small>
-      </div>
-
-      <div className="seller-entry-summary-chips">
-        <span>Single {previewSummary.singleQty || 0}</span>
-        <span>Juri {previewSummary.juriQty || 0}</span>
-      </div>
-    </div>
-  );
-}
-
-function SaveActionBar({
-  canSave,
-  saving,
-  onClear,
-  onResetMode,
-  onSaveTicket,
-}) {
-  return (
-    <div className="seller-entry-action-bar">
-      <div className="seller-entry-action-secondary-row">
-        <button type="button" className="outline-btn seller-entry-quiet-btn" onClick={onClear} disabled={saving}>
-          Clear Ticket
-        </button>
-        <button type="button" className="outline-btn seller-entry-quiet-btn" onClick={onResetMode} disabled={saving}>
-          Reset Mode
-        </button>
-      </div>
-      <button type="button" className="seller-entry-save-btn" onClick={onSaveTicket} disabled={!canSave || saving}>
-        {saving ? "Saving..." : "Save Ticket"}
-      </button>
     </div>
   );
 }
@@ -838,27 +534,22 @@ export default function SellerFastEntryBoard({
   parsedJuri,
   previewItems,
   previewSummary,
-  scanStatus,
   third,
   ticketActionNotice,
   todayString,
 }) {
-  const [entryToolMode, setEntryToolMode] = useState("scan");
   const [modeInputs, setModeInputs] = useState(() => buildInputState());
   const [editState, setEditState] = useState(null);
   const [statusNotice, setStatusNotice] = useState(null);
   const [savingTicket, setSavingTicket] = useState(false);
-  const [scanBusy, setScanBusy] = useState(false);
-  const [scanFileName, setScanFileName] = useState("");
-  const [scanReview, setScanReview] = useState(null);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [dockHeight, setDockHeight] = useState(220);
   const [historyDepth, setHistoryDepth] = useState(0);
   const [recentKeys, setRecentKeys] = useState([]);
   const inputRefs = useRef({
-    third: { number: null, quantity: null, quickText: null },
-    fourth: { number: null, quantity: null, quickText: null },
-    juri: { number: null, quantity: null, quickText: null },
+    third: { number: null, quantity: null },
+    fourth: { number: null, quantity: null },
+    juri: { number: null, quantity: null },
   });
   const focusTimeoutRef = useRef(null);
   const noticeTimeoutRef = useRef(null);
@@ -871,9 +562,6 @@ export default function SellerFastEntryBoard({
     })
   );
   const dockRef = useRef(null);
-  const scanPanelRef = useRef(null);
-  const scanReviewRef = useRef(null);
-  const previewPanelRef = useRef(null);
 
   const parsedJuriList = useMemo(() => parsedJuri || parseFastJuriText(juriText), [juriText, parsedJuri]);
   const modeRows = useMemo(
@@ -910,8 +598,6 @@ export default function SellerFastEntryBoard({
   useEffect(() => {
     setModeInputs(buildInputState());
     setEditState(null);
-    setScanReview(null);
-    setEntryToolMode("scan");
     setRecentKeys([]);
     draftHistoryRef.current = [];
     setHistoryDepth(0);
@@ -965,18 +651,6 @@ export default function SellerFastEntryBoard({
       observer.disconnect();
     };
   }, []);
-
-  useEffect(() => {
-    if (scanBusy) {
-      scrollSectionIntoView(scanPanelRef.current);
-    }
-  }, [scanBusy]);
-
-  useEffect(() => {
-    if (scanReview) {
-      scrollSectionIntoView(scanReviewRef.current);
-    }
-  }, [scanReview]);
 
   const registerInputRef = useCallback((mode, field) => {
     return (node) => {
@@ -1053,9 +727,7 @@ export default function SellerFastEntryBoard({
       const nextValue =
         field === "number"
           ? sanitizeFastDigits(value, getModeMeta(mode).digits)
-          : field === "quantity"
-            ? sanitizeFastQuantity(value, 5)
-            : value.replace(/[^\d,\n\r\s\-=:xX]/g, "");
+          : sanitizeFastQuantity(value, 5);
 
       return {
         ...current,
@@ -1067,15 +739,11 @@ export default function SellerFastEntryBoard({
     });
   }, []);
 
-  const clearModeInputs = useCallback((mode, options = {}) => {
-    const { keepQuickText = true } = options;
-
+  const clearModeInputs = useCallback((mode) => {
     setModeInputs((current) => ({
       ...current,
       [mode]: {
-        number: "",
-        quantity: "",
-        quickText: keepQuickText ? current[mode].quickText : "",
+        ...EMPTY_MODE_INPUT,
       },
     }));
   }, []);
@@ -1100,98 +768,44 @@ export default function SellerFastEntryBoard({
     return Number(source[Number(number)] || 0);
   }, []);
 
-  const setDraftQuantity = useCallback(
-    (draft, mode, number, quantity) => {
-      const normalizedDraft = createNormalizedDraftSnapshot(draft);
+  const setDraftQuantity = useCallback((draft, mode, number, quantity) => {
+    const normalizedDraft = createNormalizedDraftSnapshot(draft);
 
-      if (mode === "juri") {
-        normalizedDraft.juriText = upsertJuriText(normalizedDraft.juriText, number, quantity);
-        return normalizedDraft;
+    if (mode === "juri") {
+      normalizedDraft.juriText = upsertJuriText(normalizedDraft.juriText, number, quantity);
+      return normalizedDraft;
+    }
+
+    const target = mode === "fourth" ? normalizedDraft.fourth : normalizedDraft.third;
+    target[Number(number)] = quantity > 0 ? String(quantity) : "";
+    return normalizedDraft;
+  }, []);
+
+  const handleModeChange = useCallback(
+    (mode) => {
+      if (mode === activeEntryMode) {
+        scheduleFocus(mode, mode === "juri" ? "number" : "quantity");
+        return;
       }
 
-      const target = mode === "fourth" ? normalizedDraft.fourth : normalizedDraft.third;
-      target[Number(number)] = quantity > 0 ? String(quantity) : "";
-      return normalizedDraft;
+      setEditState((current) => (current && current.mode === mode ? current : null));
+      onActiveEntryModeChange(mode);
+      scheduleFocus(mode, mode === "juri" ? "number" : "quantity");
     },
-    []
+    [activeEntryMode, onActiveEntryModeChange, scheduleFocus]
   );
 
-  const handleEntryToolChange = useCallback((tool) => {
-    setEntryToolMode(tool);
+  const handleManualDigitSelect = useCallback(
+    (digit) => {
+      if (activeEntryMode === "juri") {
+        return;
+      }
 
-    if (tool === "manual") {
-      scheduleFocus(activeEntryMode, activeEntryMode === "juri" ? "number" : activeInputs.number ? "quantity" : "number");
-      return;
-    }
-
-    scrollSectionIntoView(scanPanelRef.current);
-  }, [activeEntryMode, activeInputs.number, scheduleFocus]);
-
-  const handleModeChange = (mode) => {
-    if (mode === activeEntryMode) {
-      scheduleFocus(mode, "number");
-      return;
-    }
-
-    setEditState((current) => (current && current.mode === mode ? current : null));
-    setEntryToolMode("manual");
-    onActiveEntryModeChange(mode);
-    scheduleFocus(mode, "number");
-  };
-
-  const handleManualDigitSelect = useCallback((digit) => {
-    if (activeEntryMode === "juri") {
-      return;
-    }
-
-    updateModeInput(activeEntryMode, "number", digit);
-    setEntryToolMode("manual");
-    scheduleFocus(activeEntryMode, "quantity");
-  }, [activeEntryMode, scheduleFocus, updateModeInput]);
-
-  const handleStructuredSubmit = useCallback(() => {
-    const entryNumber = sanitizeFastDigits(activeInputs.number, currentModeMeta.digits);
-    const entryQty = Number(sanitizeFastQuantity(activeInputs.quantity, 5) || 0);
-
-    if (entryNumber.length !== currentModeMeta.digits || entryQty <= 0) {
-      return;
-    }
-
-    let nextDraft = createNormalizedDraftSnapshot(draftOverrideRef.current);
-    const normalizedNumber = formatEntryNumber(activeEntryMode, entryNumber);
-
-    if (editState && editState.mode === activeEntryMode) {
-      nextDraft = setDraftQuantity(nextDraft, activeEntryMode, editState.originalNumber, 0);
-    }
-
-    const mergedQuantity =
-      getDraftQuantity(nextDraft, activeEntryMode, normalizedNumber) + entryQty;
-    nextDraft = setDraftQuantity(nextDraft, activeEntryMode, normalizedNumber, mergedQuantity);
-    commitDraft(nextDraft);
-
-    clearModeInputs(activeEntryMode);
-    setEditState(null);
-    showNotice(
-      editState && editState.mode === activeEntryMode
-        ? `${currentModeMeta.shortLabel} ${normalizedNumber} updated`
-        : `${currentModeMeta.shortLabel} ${normalizedNumber} added`,
-      "success"
-    );
-    scheduleFocus(activeEntryMode, "number");
-  }, [
-    activeEntryMode,
-    activeInputs.number,
-    activeInputs.quantity,
-    clearModeInputs,
-    commitDraft,
-    currentModeMeta.digits,
-    currentModeMeta.shortLabel,
-    editState,
-    getDraftQuantity,
-    scheduleFocus,
-    setDraftQuantity,
-    showNotice,
-  ]);
+      updateModeInput(activeEntryMode, "number", digit);
+      scheduleFocus(activeEntryMode, "quantity");
+    },
+    [activeEntryMode, scheduleFocus, updateModeInput]
+  );
 
   const handleManualSubmit = useCallback(() => {
     const entryNumber = sanitizeFastDigits(activeInputs.number, currentModeMeta.digits);
@@ -1248,56 +862,6 @@ export default function SellerFastEntryBoard({
     showNotice,
   ]);
 
-  const handleQuickSubmit = useCallback(() => {
-    const parser = activeEntryMode === "juri" ? parseFastJuriText : parseFastHouseText;
-    const parsed = parser(activeInputs.quickText);
-
-    if (!parsed.entries.length) {
-      showNotice("Add at least one valid line before importing.", "warning");
-      return;
-    }
-
-    let nextDraft = createNormalizedDraftSnapshot(draftOverrideRef.current);
-    rememberDraftForUndo(nextDraft);
-    const touchedKeys = [];
-
-    parsed.entries.forEach((entry) => {
-      const normalizedNumber = formatEntryNumber(activeEntryMode, entry.num);
-      const mergedQuantity =
-        getDraftQuantity(nextDraft, activeEntryMode, normalizedNumber) + Number(entry.qty || 0);
-      nextDraft = setDraftQuantity(nextDraft, activeEntryMode, normalizedNumber, mergedQuantity);
-      touchedKeys.push(buildPreviewRowKey(activeEntryMode, normalizedNumber));
-    });
-
-    commitDraft(nextDraft);
-    rememberRecentRows(touchedKeys);
-    setModeInputs((current) => ({
-      ...current,
-      [activeEntryMode]: {
-        ...current[activeEntryMode],
-        quickText: "",
-      },
-    }));
-    setEditState(null);
-    showNotice(
-      parsed.invalid.length > 0
-        ? `${parsed.entries.length} line(s) added. Skipped ${parsed.invalid.join(", ")}`
-        : `${parsed.entries.length} line(s) added`,
-      parsed.invalid.length > 0 ? "warning" : "success"
-    );
-    scheduleFocus(activeEntryMode, "number");
-  }, [
-    activeEntryMode,
-    activeInputs.quickText,
-    commitDraft,
-    getDraftQuantity,
-    rememberDraftForUndo,
-    rememberRecentRows,
-    scheduleFocus,
-    setDraftQuantity,
-    showNotice,
-  ]);
-
   const handleEditRow = useCallback(
     (row) => {
       setModeInputs((current) => ({
@@ -1313,14 +877,13 @@ export default function SellerFastEntryBoard({
         mode: row.mode,
         originalNumber: row.number,
       });
-      setEntryToolMode("manual");
 
       if (row.mode !== activeEntryMode) {
         onActiveEntryModeChange(row.mode);
       }
 
       showNotice(`${row.tag} ${row.number} ready to edit`, "info");
-      scheduleFocus(row.mode, "quantity");
+      scheduleFocus(row.mode, row.mode === "juri" ? "quantity" : "quantity");
     },
     [activeEntryMode, onActiveEntryModeChange, scheduleFocus, showNotice]
   );
@@ -1364,12 +927,10 @@ export default function SellerFastEntryBoard({
           };
 
     commitDraft(nextDraft);
-    clearModeInputs(activeEntryMode, {
-      keepQuickText: false,
-    });
+    clearModeInputs(activeEntryMode);
     setEditState((current) => (current && current.mode === activeEntryMode ? null : current));
     showNotice(`${currentModeMeta.label} cleared`, "info");
-    scheduleFocus(activeEntryMode, "number");
+    scheduleFocus(activeEntryMode, activeEntryMode === "juri" ? "number" : "quantity");
   }, [
     activeEntryMode,
     clearModeInputs,
@@ -1389,120 +950,10 @@ export default function SellerFastEntryBoard({
     });
     setModeInputs(buildInputState());
     setEditState(null);
-    setScanReview(null);
-    setScanFileName("");
     setRecentKeys([]);
     onReset();
     showNotice("Ticket cleared", "info");
   }, [onReset, rememberDraftForUndo, showNotice]);
-
-  const applyScanToDraft = useCallback((editedScan, successMessage) => {
-    if (!editedScan) {
-      return;
-    }
-
-    rememberDraftForUndo(draftOverrideRef.current);
-    const nextDraft = mapScanResultToDraft(editedScan);
-    const nextMode = getFirstScannedMode(editedScan);
-
-    commitDraft(nextDraft);
-    setModeInputs(buildInputState());
-    setEditState(null);
-    setScanReview(null);
-    setEntryToolMode("manual");
-    setRecentKeys([]);
-
-    if (nextMode !== activeEntryMode) {
-      onActiveEntryModeChange(nextMode);
-    }
-
-    showNotice(successMessage || "Scan rows loaded into the ticket. Review and save when ready.", "success");
-    scheduleFocus(nextMode, "number");
-    window.setTimeout(() => {
-      scrollSectionIntoView(previewPanelRef.current);
-    }, 140);
-  }, [
-    activeEntryMode,
-    commitDraft,
-    onActiveEntryModeChange,
-    rememberDraftForUndo,
-    scheduleFocus,
-    showNotice,
-  ]);
-
-  const handleScanFileSelect = useCallback(
-    async (file) => {
-      if (scanStatus && scanStatus.available === false) {
-        showNotice(scanStatus.message || "Ticket scan is not configured on the server.", "warning");
-        scrollSectionIntoView(scanPanelRef.current);
-        return;
-      }
-
-      if (!file) {
-        return;
-      }
-
-      if (!String(file.type || "").startsWith("image/")) {
-        showNotice("Choose a valid image file before scanning.", "warning");
-        return;
-      }
-
-      if (Number(file.size || 0) > MAX_SCAN_FILE_SIZE) {
-        showNotice("Image is too large. Use a smaller photo for faster scan.", "warning");
-        return;
-      }
-
-      try {
-        setScanBusy(true);
-        setScanFileName(file.name || "ticket-image");
-        setEntryToolMode("scan");
-        scrollSectionIntoView(scanPanelRef.current);
-        const imageDataUrl = await readImageFileAsDataUrl(file);
-        const response = await scanTicketApi({
-          imageDataUrl,
-          fileName: file.name || "ticket-image",
-          mimeType: file.type || "image/jpeg",
-        });
-        const nextScanReview = normalizeScanResponse(response.scan);
-        const scannedRowCount = getScannedRowCount(nextScanReview);
-
-        if (canAutoApplyScan(nextScanReview)) {
-          setScanReview(null);
-          applyScanToDraft(
-            nextScanReview,
-            nextScanReview.notes.length > 0
-              ? "Scan loaded into the ticket. Check preview carefully, then save."
-              : "Scan loaded into the ticket. Preview is ready to save."
-          );
-          return;
-        }
-
-        setScanReview(nextScanReview);
-        setEntryToolMode("scan");
-        showNotice(
-          scannedRowCount === 0
-            ? "No clear rows were found. Try another photo."
-            : "Scan found rows, but some need review before loading the ticket.",
-          scannedRowCount === 0 ? "warning" : "info"
-        );
-      } catch (error) {
-        scrollSectionIntoView(scanPanelRef.current);
-        showNotice(error.message || "Ticket scan failed.", "warning");
-      } finally {
-        setScanBusy(false);
-      }
-    },
-    [applyScanToDraft, scanStatus, showNotice]
-  );
-
-  const handleCancelScanReview = useCallback(() => {
-    setScanReview(null);
-    showNotice("Scan review closed. Ticket draft is unchanged.", "info");
-  }, [showNotice]);
-
-  const handleConfirmScanReview = useCallback((editedScan) => {
-    applyScanToDraft(editedScan, "Scan rows loaded into the ticket. Check preview and save when ready.");
-  }, [applyScanToDraft]);
 
   const handleUndoLast = useCallback(() => {
     const stack = draftHistoryRef.current;
@@ -1515,8 +966,6 @@ export default function SellerFastEntryBoard({
     setHistoryDepth(stack.length);
     commitDraft(previousDraft);
     setEditState(null);
-    setScanReview(null);
-    setEntryToolMode("manual");
     showNotice("Last change undone.", "info");
   }, [commitDraft, showNotice]);
 
@@ -1539,19 +988,18 @@ export default function SellerFastEntryBoard({
 
   const boardStyle = useMemo(
     () => ({
-      "--seller-entry-dock-space":
-        entryToolMode === "manual" || hasPreviewRows ? `${dockHeight}px` : "0px",
+      "--seller-entry-dock-space": hasPreviewRows ? `${dockHeight}px` : "0px",
       "--seller-entry-keyboard-offset": `${keyboardOffset}px`,
     }),
-    [dockHeight, entryToolMode, hasPreviewRows, keyboardOffset]
+    [dockHeight, hasPreviewRows, keyboardOffset]
   );
 
   return (
-    <div className={`seller-entry-shell ${entryToolMode === "manual" ? "seller-entry-shell-manual" : ""}`} style={boardStyle}>
+    <div className="seller-entry-shell seller-entry-shell-manual" style={boardStyle}>
       <div className="fast-entry-topbar">
         <div className="section-header">
           <h2>{editingTicketId ? `Edit Ticket #${editingTicketId}` : "Seller Ticket Entry"}</h2>
-          <span>Choose between the current scanner workflow and a separate super-fast manual typing tool.</span>
+          <span>Manual ticket entry with the same stable ticket engine, totals, and save flow.</span>
         </div>
       </div>
 
@@ -1599,7 +1047,7 @@ export default function SellerFastEntryBoard({
       </div>
 
       <div className="fast-entry-booking-note">
-        <strong>Speed Entry Active</strong>
+        <strong>Manual Entry Active</strong>
         <span>
           {bookingDateAdjusted
             ? `${formatDrawTime(drawTime)} last entry closed at ${formatEntryCutoffTime(drawTime)} for ${date}. Ticket moves to ${effectiveTicketDate}.`
@@ -1607,98 +1055,36 @@ export default function SellerFastEntryBoard({
         </span>
       </div>
 
-      <EntryToolSwitcher activeTool={entryToolMode} onChange={handleEntryToolChange} />
-
-      {entryToolMode === "scan" ? (
-        <>
-          <TicketScanPanel
-            busy={scanBusy}
-            fileName={scanFileName}
-            panelRef={scanPanelRef}
-            scanStatus={scanStatus}
-            onSelectFile={handleScanFileSelect}
-          />
-
-          {scanReview ? (
-            <div ref={scanReviewRef}>
-              <TicketScanReview
-                hasExistingRows={previewRows.length > 0}
-                result={scanReview}
-                onCancel={handleCancelScanReview}
-                onConfirm={handleConfirmScanReview}
-              />
-            </div>
-          ) : null}
-
-          <div className="seller-entry-main seller-entry-main-scan">
-            <aside ref={previewPanelRef} className="seller-entry-panel seller-entry-preview-panel">
-              <div className="seller-entry-preview-head">
-                <div>
-                  <span>Live Preview</span>
-                  <strong>{previewRows.length ? `${previewRows.length} row(s) on this ticket` : "Current ticket rows"}</strong>
-                </div>
-                <small>Use edit or delete inline. No popup needed.</small>
-              </div>
-
-              <EntryPreviewList
-                rows={previewRows}
-                activeMode={activeEntryMode}
-                editingKey={editState && editState.key}
-                formatCurrency={formatCurrency}
-                onEdit={handleEditRow}
-                onDelete={handleDeleteRow}
-              />
-            </aside>
-          </div>
-
-          {hasPreviewRows ? (
-            <div ref={dockRef} className="seller-entry-dock">
-              <StickyTicketSummary
-                formatCurrency={formatCurrency}
-                previewRowsCount={previewRows.length}
-                previewSummary={previewSummary}
-              />
-              <SaveActionBar
-                canSave={hasPreviewRows}
-                saving={savingTicket}
-                onClear={handleClearAll}
-                onResetMode={handleResetCurrentMode}
-                onSaveTicket={handleSaveTicket}
-              />
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <SuperFastManualTool
-          activeMode={activeEntryMode}
-          canSave={hasPreviewRows}
-          canUndo={historyDepth > 0}
-          currentDate={effectiveTicketDate}
-          currentDrawLabel={formatDrawTime(drawTime)}
-          dockRef={dockRef}
-          draft={activeInputs}
-          editingKey={editState && editState.key}
-          formatCurrency={formatCurrency}
-          isEditing={Boolean(editState && editState.mode === activeEntryMode)}
-          numberRef={registerInputRef(activeEntryMode, "number")}
-          onAddRow={handleManualSubmit}
-          onClearMode={handleResetCurrentMode}
-          onDeleteRow={handleDeleteRow}
-          onEditRow={handleEditRow}
-          onModeChange={handleModeChange}
-          onNumberChange={(value) => updateModeInput(activeEntryMode, "number", value)}
-          onQuantityChange={(value) => updateModeInput(activeEntryMode, "quantity", value)}
-          onSaveTicket={handleSaveTicket}
-          onSelectDigit={handleManualDigitSelect}
-          onUndoLast={handleUndoLast}
-          previewRows={previewRows}
-          previewSummary={previewSummary}
-          quantityRef={registerInputRef(activeEntryMode, "quantity")}
-          recentRows={recentPreviewRows}
-          savingTicket={savingTicket}
-          stats={activeModeStats}
-        />
-      )}
+      <SuperFastManualTool
+        activeMode={activeEntryMode}
+        canClearTicket={hasPreviewRows}
+        canSave={hasPreviewRows}
+        canUndo={historyDepth > 0}
+        currentDate={effectiveTicketDate}
+        currentDrawLabel={formatDrawTime(drawTime)}
+        dockRef={dockRef}
+        draft={activeInputs}
+        editingKey={editState && editState.key}
+        formatCurrency={formatCurrency}
+        isEditing={Boolean(editState && editState.mode === activeEntryMode)}
+        numberRef={registerInputRef(activeEntryMode, "number")}
+        onAddRow={handleManualSubmit}
+        onClearMode={handleResetCurrentMode}
+        onClearTicket={handleClearAll}
+        onDeleteRow={handleDeleteRow}
+        onEditRow={handleEditRow}
+        onModeChange={handleModeChange}
+        onNumberChange={(value) => updateModeInput(activeEntryMode, "number", value)}
+        onQuantityChange={(value) => updateModeInput(activeEntryMode, "quantity", value)}
+        onSaveTicket={handleSaveTicket}
+        onSelectDigit={handleManualDigitSelect}
+        onUndoLast={handleUndoLast}
+        previewSummary={previewSummary}
+        quantityRef={registerInputRef(activeEntryMode, "quantity")}
+        recentRows={recentPreviewRows}
+        savingTicket={savingTicket}
+        stats={activeModeStats}
+      />
     </div>
   );
 }

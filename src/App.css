@@ -3114,12 +3114,6 @@ button.new-ticket-method-card {
   line-height: 1.5;
 }
 
-.new-ticket-method-card.scanner {
-  background:
-    radial-gradient(circle at top right, rgba(34, 211, 238, 0.16), transparent 42%),
-    linear-gradient(180deg, rgba(7, 19, 37, 0.98), rgba(4, 10, 19, 0.98));
-}
-
 .new-ticket-method-card:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: rgba(96, 165, 250, 0.48);

@@ -137,23 +137,7 @@ function buildEntryDraftSnapshot({ third, fourth, juriText, commissionSettings }
   };
 }
 
-function normalizeScanStatus(status) {
-  if (!status || typeof status !== "object") {
-    return {
-      available: true,
-      model: "",
-      message: "",
-    };
-  }
-
-  return {
-    available: status.available !== false,
-    model: String(status.model || ""),
-    message: String(status.message || ""),
-  };
-}
-
-function SellerPanel({ scanStatus, session, onLogout, sellerSyncToken }) {
+function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const defaultBookingSelection = useMemo(() => getNextAvailableDrawSelection(), []);
   const persisted = useMemo(
     () =>
@@ -1168,7 +1152,7 @@ function SellerPanel({ scanStatus, session, onLogout, sellerSyncToken }) {
           <div className="glass-card seller-speed-header">
             <div className="seller-speed-copy">
               <h1>Seller Panel</h1>
-              <p>Fast mobile ticket entry with manual typing, scan review, live totals, and the same stable save flow.</p>
+              <p>Fast mobile ticket entry with manual typing, live totals, and the same stable save flow.</p>
             </div>
             <div className="seller-speed-actions">
               <div className="seller-speed-switcher">
@@ -1453,7 +1437,6 @@ function SellerPanel({ scanStatus, session, onLogout, sellerSyncToken }) {
                 previewItems={previewItems}
                 previewLayout={draftTicketLayout}
                 previewSummary={previewSummary}
-                scanStatus={scanStatus}
                 third={third}
                 ticketActionNotice={ticketActionNotice}
                 todayString={todayString}
@@ -2675,15 +2658,11 @@ export default function App() {
     Boolean(load(PANEL_SESSION_KEY, null))
   );
   const [sellerSyncToken, setSellerSyncToken] = useState(0);
-  const [scanStatus, setScanStatus] = useState(() =>
-    normalizeScanStatus(null)
-  );
   const hasSession = Boolean(session);
   const sessionToken = session && session.token ? session.token : "";
 
   const applyBootstrapData = useCallback((response) => {
     save(SELLER_LIST_KEY, response.sellers || []);
-    setScanStatus(normalizeScanStatus(response.scanStatus));
     setSellerSyncToken((current) => current + 1);
     setBackendState("ready");
     setBackendStatus("");
@@ -2918,7 +2897,6 @@ export default function App() {
 
   return (
     <SellerPanel
-      scanStatus={scanStatus}
       session={session}
       onLogout={handleLogout}
       sellerSyncToken={sellerSyncToken}
