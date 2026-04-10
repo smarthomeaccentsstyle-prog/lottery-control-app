@@ -61,25 +61,6 @@ export async function createTicketApi(payload) {
   return response;
 }
 
-export async function scanTicketApi(payload) {
-  try {
-    const response = await apiRequest("/scan-ticket", {
-      method: "POST",
-      body: payload,
-      timeoutMs: 90000,
-      timeoutMessage:
-        "Ticket scan took too long. Try again with a clearer image or a smaller photo.",
-    });
-    return response;
-  } catch (error) {
-    if (error && error.message === BACKEND_TIMEOUT_MESSAGE) {
-      throw new Error("Ticket scan took too long. Try again with a clearer image or a smaller photo.");
-    }
-
-    throw error;
-  }
-}
-
 export async function updateTicketApi(id, payload) {
   const response = await apiRequest(`/tickets/${id}`, {
     method: "PATCH",
