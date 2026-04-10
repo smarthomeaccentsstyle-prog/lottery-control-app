@@ -110,6 +110,17 @@
   gap: 16px;
 }
 
+.seller-quick-access-bar,
+.seller-live-preview-card,
+.seller-live-preview-head,
+.seller-live-preview-stats,
+.seller-live-preview-stat,
+.seller-live-preview-format,
+.seller-qty-shortcuts {
+  display: grid;
+  gap: 10px;
+}
+
 .seller-manual-tool-third {
   --seller-manual-accent: #3b82f6;
   --seller-manual-accent-soft: rgba(59, 130, 246, 0.18);
@@ -143,6 +154,7 @@
 
 .seller-manual-title,
 .seller-manual-meta,
+.seller-quick-access-bar,
 .seller-manual-mode-stats,
 .seller-manual-juri-form,
 .seller-manual-house-form,
@@ -172,6 +184,8 @@
 }
 
 .seller-manual-meta-pill,
+.seller-live-preview-card,
+.seller-live-preview-stat,
 .seller-manual-mode-copy,
 .seller-manual-saved-ticket,
 .seller-manual-selected-digit,
@@ -201,6 +215,65 @@
 
 .seller-manual-mode-stats {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.seller-quick-access-bar {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.seller-quick-access-btn {
+  min-height: 56px;
+  border: 1px solid rgba(95, 116, 152, 0.28);
+  background: rgba(6, 12, 23, 0.94);
+  color: var(--seller-entry-text);
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  align-content: center;
+  padding: 10px 12px;
+  text-align: left;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.seller-quick-access-btn span,
+.seller-live-preview-head span,
+.seller-live-preview-stat span {
+  color: var(--seller-manual-accent);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.seller-quick-access-btn strong,
+.seller-live-preview-head strong,
+.seller-live-preview-stat strong {
+  color: var(--seller-entry-text);
+}
+
+.seller-quick-access-btn.active {
+  border-color: var(--seller-manual-accent);
+  background: var(--seller-manual-accent-soft);
+}
+
+.seller-qty-shortcuts {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.seller-qty-shortcut-btn {
+  min-height: 42px;
+  border: 1px solid rgba(95, 116, 152, 0.28);
+  background: rgba(6, 12, 23, 0.94);
+  color: var(--seller-entry-text);
+  border-radius: 14px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.seller-qty-clear-btn {
+  border-color: rgba(245, 200, 66, 0.34);
 }
 
 .seller-entry-field {
@@ -329,6 +402,48 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.seller-live-preview-card {
+  background:
+    radial-gradient(circle at top right, var(--seller-manual-accent-soft), transparent 42%),
+    rgba(6, 12, 23, 0.96);
+  border: 1px solid rgba(95, 116, 152, 0.28);
+}
+
+.seller-live-preview-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.seller-live-preview-head small {
+  min-height: 32px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(8, 15, 28, 0.96);
+  border: 1px solid rgba(95, 116, 152, 0.28);
+  color: var(--seller-entry-text);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.seller-live-preview-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.seller-live-preview-format {
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(4, 10, 20, 0.92);
+  border: 1px solid rgba(76, 95, 130, 0.24);
+}
+
+.seller-live-preview-empty {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px dashed rgba(95, 116, 152, 0.34);
+  color: var(--seller-entry-soft);
+  line-height: 1.55;
+}
+
 .seller-manual-recent-empty {
   padding: 6px 0 0;
 }
@@ -397,6 +512,10 @@
     align-items: end;
   }
 
+  .seller-live-preview-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .seller-manual-juri-form .seller-manual-primary-btn {
     grid-column: 1 / -1;
   }
@@ -444,6 +563,19 @@
 
   .seller-entry-tab strong {
     font-size: 0.9rem;
+  }
+
+  .seller-quick-access-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .seller-qty-shortcuts,
+  .seller-live-preview-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .seller-live-preview-head {
+    grid-template-columns: 1fr;
   }
 
   .seller-entry-field input {

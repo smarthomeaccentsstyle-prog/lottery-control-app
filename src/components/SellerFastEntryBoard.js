@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "./SellerFastEntryBoard.css";
+import TicketFormat from "./TicketFormat.js";
 import {
   getJuriQuantity,
   normalizeSingleDraft,
@@ -16,6 +17,7 @@ const EMPTY_MODE_INPUT = {
   number: "",
   quantity: "",
 };
+const QUANTITY_SHORTCUTS = [1, 5, 10, 50];
 
 const MODE_META = {
   third: {
@@ -184,6 +186,41 @@ function ModeStat({ label, value }) {
   );
 }
 
+function QuickAccessBar({ activeMode, canClearTicket, onClearTicket, onModeChange, onOpenDue }) {
+  return (
+    <div className="seller-quick-access-bar" aria-label="New ticket quick access">
+      {[
+        { mode: "third", label: "3rd", short: "3H" },
+        { mode: "fourth", label: "4th", short: "4H" },
+        { mode: "juri", label: "Juri", short: "J" },
+      ].map((item) => (
+        <button
+          key={item.mode}
+          type="button"
+          className={`seller-quick-access-btn ${activeMode === item.mode ? "active" : ""}`}
+          onClick={() => onModeChange(item.mode)}
+        >
+          <span>{item.label}</span>
+          <strong>{item.short}</strong>
+        </button>
+      ))}
+      <button type="button" className="seller-quick-access-btn" onClick={onOpenDue}>
+        <span>Due</span>
+        <strong>Desk</strong>
+      </button>
+      <button
+        type="button"
+        className="seller-quick-access-btn"
+        onClick={onClearTicket}
+        disabled={!canClearTicket}
+      >
+        <span>Clear</span>
+        <strong>Ticket</strong>
+      </button>
+    </div>
+  );
+}
+
 function HouseDigitPad({ selectedDigit, onSelectDigit }) {
   return (
     <div className="seller-manual-digit-pad" aria-label="Digit pad">
@@ -198,6 +235,77 @@ function HouseDigitPad({ selectedDigit, onSelectDigit }) {
         </button>
       ))}
     </div>
+  );
+}
+
+function QuantityShortcutBar({ onApplyShortcut, onClearQuantity }) {
+  return (
+    <div className="seller-qty-shortcuts" aria-label="Quantity shortcuts">
+      {QUANTITY_SHORTCUTS.map((value) => (
+        <button
+          key={value}
+          type="button"
+          className="seller-qty-shortcut-btn"
+          onClick={() => onApplyShortcut(String(value))}
+        >
+          Qty {value}
+        </button>
+      ))}
+      <button type="button" className="seller-qty-shortcut-btn seller-qty-clear-btn" onClick={onClearQuantity}>
+        Clear Qty
+      </button>
+    </div>
+  );
+}
+
+function LivePreviewPanel({
+  currentDue,
+  effectivePaidAmount,
+  formatCurrency,
+  hasPreviewRows,
+  paymentMode,
+  previewLayout,
+  previewSummary,
+}) {
+  return (
+    <section className="seller-live-preview-card">
+      <div className="seller-live-preview-head">
+        <div>
+          <span>Live Ticket Preview</span>
+          <strong>{hasPreviewRows ? "Preview updates instantly while you enter rows." : "Preview appears as soon as you add a row."}</strong>
+        </div>
+        <small>{paymentMode}</small>
+      </div>
+
+      <div className="seller-live-preview-stats">
+        <div className="seller-live-preview-stat">
+          <span>Rows</span>
+          <strong>{previewSummary.rows || 0}</strong>
+        </div>
+        <div className="seller-live-preview-stat">
+          <span>Total</span>
+          <strong>{formatCurrency(previewSummary.total || 0)}</strong>
+        </div>
+        <div className="seller-live-preview-stat">
+          <span>Paid</span>
+          <strong>{formatCurrency(effectivePaidAmount || 0)}</strong>
+        </div>
+        <div className="seller-live-preview-stat">
+          <span>Due</span>
+          <strong>{formatCurrency(currentDue || 0)}</strong>
+        </div>
+      </div>
+
+      {hasPreviewRows ? (
+        <div className="seller-live-preview-format">
+          <TicketFormat layout={previewLayout} compact />
+        </div>
+      ) : (
+        <div className="seller-live-preview-empty">
+          Tap `3rd`, `4th`, or `Juri`, enter quantity fast, and the ticket preview will show here immediately.
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -395,11 +503,13 @@ function SuperFastManualTool({
   canPrintDraft,
   canSave,
   canUndo,
+  currentDue,
   currentDate,
   currentDrawLabel,
   dockRef,
   draft,
   editingKey,
+  effectivePaidAmount,
   formatCurrency,
   formatDrawTime,
   isEditing,
@@ -413,6 +523,7 @@ function SuperFastManualTool({
   onEditRow,
   onModeChange,
   onNumberChange,
+  onOpenDue,
   onPrintDraft,
   onPrintSavedTicket,
   onQuantityChange,
@@ -425,6 +536,8 @@ function SuperFastManualTool({
   savingTicket,
   stats,
   numberRef,
+  paymentMode,
+  previewLayout,
 }) {
   const meta = getModeMeta(activeMode);
   const canSubmit = draft.number.length === meta.digits && Number(draft.quantity || 0) > 0;
@@ -445,6 +558,14 @@ function SuperFastManualTool({
           </div>
         </div>
 
+        <QuickAccessBar
+          activeMode={activeMode}
+          canClearTicket={canClearTicket}
+          onClearTicket={onClearTicket}
+          onModeChange={onModeChange}
+          onOpenDue={onOpenDue}
+        />
+
         <ModeTabs activeMode={activeMode} onChange={onModeChange} />
 
         <div className={`seller-manual-entry-shell seller-manual-entry-shell-${activeMode}`}>
@@ -463,6 +584,11 @@ function SuperFastManualTool({
             <ModeStat label="Qty" value={stats.qty} />
             <ModeStat label="Amount" value={formatCurrency(stats.amount)} />
           </div>
+
+          <QuantityShortcutBar
+            onApplyShortcut={(value) => onQuantityChange(value)}
+            onClearQuantity={() => onQuantityChange("")}
+          />
 
           {activeMode === "juri" ? (
             <div className="seller-manual-juri-form">
@@ -553,6 +679,16 @@ function SuperFastManualTool({
           )}
         </div>
 
+        <LivePreviewPanel
+          currentDue={currentDue}
+          effectivePaidAmount={effectivePaidAmount}
+          formatCurrency={formatCurrency}
+          hasPreviewRows={recentRows.length > 0}
+          paymentMode={paymentMode}
+          previewLayout={previewLayout}
+          previewSummary={previewSummary}
+        />
+
         <ManualRecentStrip
           canClear={canClearTicket}
           editingKey={editingKey}
@@ -589,10 +725,12 @@ function SuperFastManualTool({
 export default function SellerFastEntryBoard({
   activeEntryMode,
   bookingDateAdjusted,
+  currentDue,
   date,
   drawOptions,
   drawTime,
   editingTicketId,
+  effectivePaidAmount,
   effectiveTicketDate,
   entryUiToken,
   formatCurrency,
@@ -609,13 +747,16 @@ export default function SellerFastEntryBoard({
   onDrawTimeChange,
   onFourthChange,
   onJuriTextChange,
+  onOpenDue,
   onPrintDraft,
   onPrintSavedTicket,
   onReset,
   onSave,
   onThirdChange,
   parsedJuri,
+  paymentMode,
   previewItems,
+  previewLayout,
   previewSummary,
   third,
   ticketActionNotice,
@@ -1144,11 +1285,13 @@ export default function SellerFastEntryBoard({
         canPrintDraft={hasPreviewRows}
         canSave={hasPreviewRows}
         canUndo={historyDepth > 0}
+        currentDue={currentDue}
         currentDate={effectiveTicketDate}
         currentDrawLabel={formatDrawTime(drawTime)}
         dockRef={dockRef}
         draft={activeInputs}
         editingKey={editState && editState.key}
+        effectivePaidAmount={effectivePaidAmount}
         formatCurrency={formatCurrency}
         formatDrawTime={formatDrawTime}
         isEditing={Boolean(editState && editState.mode === activeEntryMode)}
@@ -1163,6 +1306,7 @@ export default function SellerFastEntryBoard({
         onEditRow={handleEditRow}
         onModeChange={handleModeChange}
         onNumberChange={(value) => updateModeInput(activeEntryMode, "number", value)}
+        onOpenDue={onOpenDue}
         onPrintDraft={onPrintDraft}
         onPrintSavedTicket={onPrintSavedTicket}
         onQuantityChange={(value) => updateModeInput(activeEntryMode, "quantity", value)}
@@ -1174,6 +1318,8 @@ export default function SellerFastEntryBoard({
         recentRows={recentPreviewRows}
         savingTicket={savingTicket}
         stats={activeModeStats}
+        paymentMode={paymentMode}
+        previewLayout={previewLayout}
       />
     </div>
   );

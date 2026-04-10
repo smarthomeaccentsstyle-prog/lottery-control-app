@@ -391,6 +391,9 @@ test("renders the manual fast-entry tool directly on seller ticket page", async 
   expect(container.textContent).toContain("3rd House");
   expect(container.textContent).toContain("4th House");
   expect(container.textContent).toContain("Juri");
+  expect(container.textContent).toContain("DueDesk");
+  expect(container.textContent).toContain("Qty 10");
+  expect(container.textContent).toContain("Live Ticket Preview");
   expect(container.textContent).toContain("Undo Last");
   expect(container.textContent).toContain("Clear Current Mode");
   expect(container.textContent).toContain("Print Draft");
@@ -759,6 +762,126 @@ test("renders ticket store with saved ticket format", async () => {
   expect(container.textContent).toContain("3rd");
   expect(container.textContent).toContain("4th");
   expect(container.textContent).toContain("12-21 -1");
+  await unmountApp(root);
+});
+
+test("opens the mobile-friendly due section and jumps to ticket store from a due card", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const dueTicket = {
+    id: 2002,
+    customerName: "Riya Das",
+    customerPhone: "9876543210",
+    date: "2026-04-06",
+    drawTime: "13:00",
+    paymentMode: "Partial",
+    paidAmount: 20,
+    dueAmount: 35,
+    total: 55,
+    commission: 4.5,
+    claimed: false,
+    payout: 0,
+    winningNumber: "",
+    createdAt: "2026-04-05T12:00:00.000Z",
+    sellerUsername: "seller1",
+    items: [
+      { type: "single3", num: "4", qty: 5, label: "3rd House 4", total: 55, profit: 4.5 },
+    ],
+  };
+  const baseFetchMock = createSuccessFetchMock();
+
+  global.fetch = jest.fn((url) => {
+    if (String(url).includes("/tickets")) {
+      return createJsonResponse({ tickets: [dueTicket] });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const dueButton = findButtonByText(container, "Due");
+
+  expect(dueButton).toBeTruthy();
+
+  await clickButton(dueButton);
+
+  expect(container.textContent).toContain("Due Management");
+  expect(container.textContent).toContain("Riya Das");
+  expect(container.textContent).toContain("Partial");
+  expect(container.querySelector('a[href="tel:9876543210"]')).toBeTruthy();
+
+  await clickButton(findButtonByText(container, "Open Ticket"));
+
+  expect(container.textContent).toContain("Ticket Store");
+  expect(container.querySelector('input[placeholder="Search by ticket, name, phone"]').value).toBe(
+    "2002"
+  );
+
+  await unmountApp(root);
+});
+
+test("opens due directly from the new ticket quick access bar", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const dueTicket = {
+    id: 3110,
+    customerName: "Amit Roy",
+    customerPhone: "",
+    date: "2026-04-06",
+    drawTime: "11:00",
+    paymentMode: "Unpaid",
+    paidAmount: 0,
+    dueAmount: 22,
+    total: 22,
+    commission: 1.8,
+    claimed: false,
+    payout: 0,
+    winningNumber: "",
+    createdAt: "2026-04-05T12:00:00.000Z",
+    sellerUsername: "seller1",
+    items: [{ type: "single3", num: "2", qty: 2, label: "3rd House 2", total: 22, profit: 1.8 }],
+  };
+  const baseFetchMock = createSuccessFetchMock();
+
+  global.fetch = jest.fn((url) => {
+    if (String(url).includes("/tickets")) {
+      return createJsonResponse({ tickets: [dueTicket] });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  await clickButton(findButtonByText(container, "DueDesk"));
+
+  expect(container.textContent).toContain("Due Management");
+  expect(container.textContent).toContain("Amit Roy");
+
   await unmountApp(root);
 });
 
