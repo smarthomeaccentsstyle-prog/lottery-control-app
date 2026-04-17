@@ -352,6 +352,77 @@ button.seller-priority-card.active {
   gap: 18px;
 }
 
+.maintenance-card {
+  display: grid;
+  gap: 18px;
+}
+
+.maintenance-kicker {
+  background: rgba(245, 200, 66, 0.16);
+  color: #fef3c7;
+}
+
+.maintenance-status-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(20, 27, 44, 0.9);
+  border: 1px solid rgba(245, 200, 66, 0.24);
+}
+
+.maintenance-pulse {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: radial-gradient(circle, rgba(245, 200, 66, 0.9) 0%, rgba(245, 200, 66, 0.2) 72%);
+  box-shadow: 0 0 22px rgba(245, 200, 66, 0.32);
+}
+
+.maintenance-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+  border: 1px solid rgba(245, 200, 66, 0.36);
+  animation: maintenance-pulse 1.35s ease-out infinite;
+}
+
+.maintenance-status-panel strong {
+  display: block;
+  color: #fff9db;
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.maintenance-status-panel span {
+  color: #d6def0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.maintenance-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(12, 18, 31, 0.86);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+.maintenance-action-bar span {
+  flex: 1;
+  color: #dbe7ff;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .session-restore-status {
   display: flex;
   align-items: center;
@@ -392,6 +463,23 @@ button.seller-priority-card.active {
 
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes maintenance-pulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.92);
+  }
+
+  70% {
+    opacity: 0;
+    transform: scale(1.36);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.36);
   }
 }
 
@@ -997,6 +1085,87 @@ button.admin-priority-card.active {
 
 .admin-risk-section {
   margin-top: 18px;
+}
+
+.admin-house-top-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.admin-house-top-chip {
+  min-height: 74px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(36, 50, 78, 0.95);
+  background: rgba(10, 17, 29, 0.98);
+  display: grid;
+  gap: 6px;
+}
+
+.admin-house-top-chip span {
+  color: #9fb1d3;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.admin-house-top-chip strong {
+  font-size: 1.1rem;
+  color: #f8fbff;
+}
+
+.admin-house-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-house-box {
+  min-height: 92px;
+  padding: 10px 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(36, 50, 78, 0.95);
+  background: rgba(10, 17, 29, 0.98);
+  display: grid;
+  gap: 8px;
+  align-content: space-between;
+  text-align: center;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.admin-house-box.active {
+  box-shadow: 0 16px 28px rgba(2, 6, 23, 0.22);
+}
+
+.admin-house-box strong {
+  font-size: 1.2rem;
+  color: #f8fbff;
+  line-height: 1;
+}
+
+.admin-house-box-meta,
+.admin-house-box-footer {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-house-box span,
+.admin-house-box small {
+  color: #8d9bb3;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.admin-house-box-meta small {
+  font-size: 12px;
+  font-weight: 700;
+  color: #dbeafe;
 }
 
 .admin-risk-grid {
@@ -2541,6 +2710,10 @@ textarea::placeholder {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
+  .admin-house-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
   .admin-priority-strip,
   .admin-report-grid,
   .master-workspace-grid {
@@ -2730,6 +2903,25 @@ textarea::placeholder {
 
   .admin-risk-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-house-top-strip {
+    gap: 8px;
+  }
+
+  .admin-house-top-chip {
+    min-height: 68px;
+    padding: 10px 12px;
+  }
+
+  .admin-house-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .admin-house-box {
+    min-height: 82px;
+    padding: 8px 6px;
+    gap: 6px;
   }
 
   .admin-juri-mini-grid {
@@ -3030,6 +3222,29 @@ textarea::placeholder {
 
   .admin-risk-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-house-top-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-house-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .admin-house-box {
+    min-height: 76px;
+    padding: 8px 4px;
+  }
+
+  .admin-house-box strong {
+    font-size: 1.05rem;
+  }
+
+  .admin-house-box span,
+  .admin-house-box small {
+    font-size: 10px;
   }
 
   .admin-juri-mini-grid {

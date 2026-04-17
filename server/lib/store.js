@@ -7,6 +7,7 @@ const {
   normalizeSeller,
   normalizeTicket,
 } = require("./models");
+const { getSellerOwnerAdminId } = require("./access");
 
 const APP_ROOT = path.join(__dirname, "..", "..");
 const DEFAULT_DATA_DIR = path.join(__dirname, "..", "data");
@@ -219,7 +220,7 @@ function buildDbSnapshot(input = {}, fallback = DEFAULT_DB) {
     master: mergeCredentials(source.master, base.master, DEFAULT_DB.master),
     admin: primaryAdmin,
     admins,
-    sellers: normalizeSellerList(source.sellers, base.sellers),
+    sellers: normalizeSellerList(source.sellers, base.sellers, primaryAdmin),
     tickets: normalizeTicketList(source.tickets, base.tickets),
     results: Array.isArray(source.results)
       ? source.results
@@ -240,9 +241,21 @@ function normalizeAdminList(list, fallback = [], legacyAdmin = DEFAULT_DB.admin)
   );
 }
 
-function normalizeSellerList(list, fallback = []) {
+function normalizeSellerList(list, fallback = [], primaryAdmin = null) {
   const source = Array.isArray(list) ? list : Array.isArray(fallback) ? fallback : [];
-  return source.map((seller, index) => normalizeSeller(seller, index));
+  const primaryAdminId = primaryAdmin ? primaryAdmin.id : null;
+
+  return source.map((seller, index) => {
+    const normalizedSellerInput =
+      seller && typeof seller === "object"
+        ? {
+            ...seller,
+            ownerAdminId: getSellerOwnerAdminId(seller, primaryAdminId),
+          }
+        : seller;
+
+    return normalizeSeller(normalizedSellerInput, index);
+  });
 }
 
 function normalizeTicketList(list, fallback = []) {

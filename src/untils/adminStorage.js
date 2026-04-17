@@ -21,7 +21,7 @@ export const DEFAULT_SELLERS = [
 export function getStoredSellers() {
   const stored = load(SELLER_LIST_KEY, DEFAULT_SELLERS);
 
-  if (!Array.isArray(stored) || stored.length === 0) {
+  if (!Array.isArray(stored)) {
     return DEFAULT_SELLERS;
   }
 

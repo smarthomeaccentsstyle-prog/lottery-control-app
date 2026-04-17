@@ -40,6 +40,16 @@ const MODE_META = {
   },
 };
 
+const ENTRY_SURFACE_ORDER = ["info", "third", "fourth", "juri", "save", "print"];
+const ENTRY_SURFACE_LABELS = {
+  info: "Info",
+  third: "3rd",
+  fourth: "4th",
+  juri: "Juri",
+  save: "Save",
+  print: "Print",
+};
+
 function buildInputState() {
   return {
     third: { ...EMPTY_MODE_INPUT },
@@ -154,29 +164,6 @@ function scrollFieldIntoView(node) {
   }, 120);
 }
 
-function ModeTabs({ activeMode, onChange }) {
-  return (
-    <div className="seller-entry-tabs" role="tablist" aria-label="Entry mode">
-      {Object.keys(MODE_META).map((mode) => {
-        const meta = getModeMeta(mode);
-        return (
-          <button
-            key={mode}
-            type="button"
-            role="tab"
-            aria-selected={activeMode === mode}
-            className={`seller-entry-tab seller-entry-tab-${mode} ${activeMode === mode ? "active" : ""}`}
-            onClick={() => onChange(mode)}
-          >
-            <span>{meta.shortLabel}</span>
-            <strong>{meta.label}</strong>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function ModeStat({ label, value }) {
   return (
     <div className="seller-entry-mode-stat">
@@ -186,37 +173,21 @@ function ModeStat({ label, value }) {
   );
 }
 
-function QuickAccessBar({ activeMode, canClearTicket, onClearTicket, onModeChange, onOpenDue }) {
+function SellerEntryPopupTabs({ activePanel, onChange }) {
   return (
-    <div className="seller-quick-access-bar" aria-label="New ticket quick access">
-      {[
-        { mode: "third", label: "3rd", short: "3H" },
-        { mode: "fourth", label: "4th", short: "4H" },
-        { mode: "juri", label: "Juri", short: "J" },
-      ].map((item) => (
+    <div className="seller-popup-tabs" role="tablist" aria-label="Ticket entry popup menu">
+      {ENTRY_SURFACE_ORDER.map((panel) => (
         <button
-          key={item.mode}
+          key={panel}
           type="button"
-          className={`seller-quick-access-btn ${activeMode === item.mode ? "active" : ""}`}
-          onClick={() => onModeChange(item.mode)}
+          role="tab"
+          aria-selected={activePanel === panel}
+          className={`seller-popup-tab ${activePanel === panel ? "active" : ""}`}
+          onClick={() => onChange(panel)}
         >
-          <span>{item.label}</span>
-          <strong>{item.short}</strong>
+          <span>{ENTRY_SURFACE_LABELS[panel]}</span>
         </button>
       ))}
-      <button type="button" className="seller-quick-access-btn" onClick={onOpenDue}>
-        <span>Due</span>
-        <strong>Desk</strong>
-      </button>
-      <button
-        type="button"
-        className="seller-quick-access-btn"
-        onClick={onClearTicket}
-        disabled={!canClearTicket}
-      >
-        <span>Clear</span>
-        <strong>Ticket</strong>
-      </button>
     </div>
   );
 }
@@ -365,25 +336,18 @@ function ManualRecentStrip({ canClear, editingKey, rows, onClearTicket, onDelete
   );
 }
 
-function ManualTotalsDock({
-  canSave,
-  canPrintDraft,
-  canUndo,
+function SavedTicketBanner({
   formatCurrency,
   formatDrawTime,
   lastSavedTicket,
   lastSavedTicketId,
-  previewSummary,
-  saving,
-  onClearMode,
   onDismissSavedTicket,
-  onPrintDraft,
   onPrintSavedTicket,
-  onSaveTicket,
-  onUndoLast,
 }) {
-  const singleAmount = Number(previewSummary.singleQty || 0) * SINGLE_RATE;
-  const juriAmount = Number(previewSummary.juriQty || 0) * JURI_RATE;
+  if (!lastSavedTicketId) {
+    return null;
+  }
+
   const savedTicketMeta = [];
 
   if (lastSavedTicket && lastSavedTicket.date) {
@@ -403,102 +367,265 @@ function ManualTotalsDock({
   }
 
   return (
-    <div className="seller-manual-dock-wrap">
-      {lastSavedTicketId ? (
-        <div className="seller-manual-saved-ticket">
-          <div className="seller-manual-saved-copy">
-            <span>Last Saved Ticket</span>
-            <strong>
-              Ticket #{lastSavedTicket && lastSavedTicket.id ? lastSavedTicket.id : lastSavedTicketId}
-            </strong>
-            <small>
-              {savedTicketMeta.length > 0
-                ? savedTicketMeta.join(" | ")
-                : "Saved ticket is ready to reprint from this section."}
-            </small>
-          </div>
-          <div className="seller-manual-saved-actions">
-            <button
-              type="button"
-              className="outline-btn seller-entry-quiet-btn"
-              onClick={onPrintSavedTicket}
-            >
-              Reprint Saved
-            </button>
-            <button
-              type="button"
-              className="outline-btn seller-entry-quiet-btn"
-              onClick={onDismissSavedTicket}
-            >
-              Hide
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="seller-manual-totals-bar">
-        <div className="seller-manual-total-cell">
-          <span>Single Qty</span>
-          <strong>{previewSummary.singleQty || 0}</strong>
-        </div>
-        <div className="seller-manual-total-cell">
-          <span>Single Amt</span>
-          <strong>{formatCurrency(singleAmount)}</strong>
-        </div>
-        <div className="seller-manual-total-cell">
-          <span>Juri Qty</span>
-          <strong>{previewSummary.juriQty || 0}</strong>
-        </div>
-        <div className="seller-manual-total-cell">
-          <span>Juri Amt</span>
-          <strong>{formatCurrency(juriAmount)}</strong>
-        </div>
-        <div className="seller-manual-total-cell seller-manual-total-cell-grand">
-          <span>Grand Total</span>
-          <strong>{formatCurrency(previewSummary.total || 0)}</strong>
-        </div>
+    <div className="seller-manual-saved-ticket">
+      <div className="seller-manual-saved-copy">
+        <span>Last Saved Ticket</span>
+        <strong>
+          Ticket #{lastSavedTicket && lastSavedTicket.id ? lastSavedTicket.id : lastSavedTicketId}
+        </strong>
+        <small>
+          {savedTicketMeta.length > 0
+            ? savedTicketMeta.join(" | ")
+            : "Saved ticket is ready to reprint from this section."}
+        </small>
       </div>
-
-      <div className="seller-manual-action-bar">
+      <div className="seller-manual-saved-actions">
         <button
           type="button"
           className="outline-btn seller-entry-quiet-btn"
-          onClick={onUndoLast}
-          disabled={!canUndo || saving}
+          onClick={onPrintSavedTicket}
         >
-          Undo Last
+          Reprint Saved
         </button>
         <button
           type="button"
           className="outline-btn seller-entry-quiet-btn"
-          onClick={onClearMode}
-          disabled={saving}
+          onClick={onDismissSavedTicket}
         >
-          Clear Current Mode
-        </button>
-        <button
-          type="button"
-          className="outline-btn seller-entry-quiet-btn seller-entry-print-btn"
-          onClick={onPrintDraft}
-          disabled={!canPrintDraft || saving}
-        >
-          Print Draft
-        </button>
-        <button
-          type="button"
-          className="seller-entry-save-btn"
-          onClick={onSaveTicket}
-          disabled={!canSave || saving}
-        >
-          {saving ? "Saving..." : "Save Ticket"}
+          Hide
         </button>
       </div>
     </div>
   );
 }
 
+function SellerEntryInfoPanel({
+  bookingDateAdjusted,
+  currentDate,
+  currentDrawLabel,
+  date,
+  draftTicketId,
+  drawOptions,
+  drawTime,
+  formatCurrency,
+  formatEntryCutoffTime,
+  maxBookingDate,
+  onDateChange,
+  onDrawTimeChange,
+  previewSummary,
+  todayString,
+}) {
+  const totalAmount = Number(previewSummary && previewSummary.total ? previewSummary.total : 0);
+
+  return (
+    <section className="seller-popup-panel seller-popup-info-panel">
+      <div className="seller-popup-copy fast-entry-booking-pill">
+        <span>Booking For</span>
+        <strong>{currentDate}</strong>
+        <small>
+          {bookingDateAdjusted
+            ? `${currentDrawLabel} last entry closed at ${formatEntryCutoffTime(drawTime)} for ${date}. Ticket moves to ${currentDate}.`
+            : `${currentDrawLabel} ticket entry is open for ${currentDate} until ${formatEntryCutoffTime(drawTime)}.`}
+        </small>
+      </div>
+
+      <div className="seller-popup-meta-grid">
+        <div className="seller-popup-meta-card">
+          <span>Ticket No.</span>
+          <strong>{draftTicketId}</strong>
+        </div>
+        <div className="seller-popup-meta-card">
+          <span>Rows</span>
+          <strong>{previewSummary.rows || 0}</strong>
+        </div>
+        <div className="seller-popup-meta-card seller-popup-meta-card-wide">
+          <span>Total</span>
+          <strong>{formatCurrency(totalAmount)}</strong>
+        </div>
+      </div>
+
+      <div className="seller-popup-control-grid">
+        <label className="fast-entry-control">
+          <span>Date</span>
+          <input
+            type="date"
+            min={todayString}
+            max={maxBookingDate}
+            value={date}
+            onChange={(event) => onDateChange(event.target.value)}
+          />
+        </label>
+
+        <label className="fast-entry-control">
+          <span>Draw</span>
+          <select value={drawTime} onChange={(event) => onDrawTimeChange(event.target.value)}>
+            {drawOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </section>
+  );
+}
+
+function SellerEntrySavePanel({
+  canClearTicket,
+  canSave,
+  canUndo,
+  formatCurrency,
+  onClearMode,
+  onClearTicket,
+  onDeleteRow,
+  onEditRow,
+  onSaveTicket,
+  onUndoLast,
+  previewSummary,
+  recentRows,
+  saving,
+  editingKey,
+}) {
+  const singleAmount = Number(previewSummary.singleQty || 0) * SINGLE_RATE;
+  const juriAmount = Number(previewSummary.juriQty || 0) * JURI_RATE;
+
+  return (
+    <section className="seller-popup-panel seller-popup-save-panel">
+      <ManualRecentStrip
+        canClear={canClearTicket}
+        editingKey={editingKey}
+        rows={recentRows}
+        onClearTicket={onClearTicket}
+        onDelete={onDeleteRow}
+        onEdit={onEditRow}
+      />
+
+      <div className="seller-manual-dock-wrap">
+        <div className="seller-manual-totals-bar">
+          <div className="seller-manual-total-cell">
+            <span>Single Qty</span>
+            <strong>{previewSummary.singleQty || 0}</strong>
+          </div>
+          <div className="seller-manual-total-cell">
+            <span>Single Amt</span>
+            <strong>{formatCurrency(singleAmount)}</strong>
+          </div>
+          <div className="seller-manual-total-cell">
+            <span>Juri Qty</span>
+            <strong>{previewSummary.juriQty || 0}</strong>
+          </div>
+          <div className="seller-manual-total-cell">
+            <span>Juri Amt</span>
+            <strong>{formatCurrency(juriAmount)}</strong>
+          </div>
+          <div className="seller-manual-total-cell seller-manual-total-cell-grand">
+            <span>Grand Total</span>
+            <strong>{formatCurrency(previewSummary.total || 0)}</strong>
+          </div>
+        </div>
+
+        <div className="seller-manual-action-bar seller-popup-save-actions">
+          <button
+            type="button"
+            className="outline-btn seller-entry-quiet-btn"
+            onClick={onUndoLast}
+            disabled={!canUndo || saving}
+          >
+            Undo Last
+          </button>
+          <button
+            type="button"
+            className="outline-btn seller-entry-quiet-btn"
+            onClick={onClearMode}
+            disabled={saving}
+          >
+            Clear Current Mode
+          </button>
+          <button
+            type="button"
+            className="outline-btn seller-entry-quiet-btn"
+            onClick={onClearTicket}
+            disabled={!canClearTicket || saving}
+          >
+            Clear Ticket
+          </button>
+          <button
+            type="button"
+            className="seller-entry-save-btn"
+            onClick={onSaveTicket}
+            disabled={!canSave || saving}
+          >
+            {saving ? "Saving..." : "Save Ticket"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SellerEntryPrintPanel({
+  canPrintDraft,
+  currentDue,
+  draftTicketId,
+  effectivePaidAmount,
+  formatCurrency,
+  formatDrawTime,
+  lastSavedTicket,
+  lastSavedTicketId,
+  onDismissSavedTicket,
+  onPrintDraft,
+  onPrintSavedTicket,
+  paymentMode,
+  previewLayout,
+  previewSummary,
+  saving,
+}) {
+  return (
+    <section className="seller-popup-panel seller-popup-print-panel">
+      <div className="seller-popup-copy">
+        <span>Print Ticket</span>
+        <strong>Ticket #{draftTicketId}</strong>
+        <small>Print from here before save, and the same ticket number will be stored.</small>
+      </div>
+
+      <LivePreviewPanel
+        currentDue={currentDue}
+        effectivePaidAmount={effectivePaidAmount}
+        formatCurrency={formatCurrency}
+        hasPreviewRows={Number(previewSummary.rows || 0) > 0}
+        paymentMode={paymentMode}
+        previewLayout={previewLayout}
+        previewSummary={previewSummary}
+      />
+
+      <div className="seller-popup-print-actions">
+        <button
+          type="button"
+          className="outline-btn seller-entry-quiet-btn seller-entry-print-btn"
+          onClick={onPrintDraft}
+          disabled={!canPrintDraft || saving}
+        >
+          Print Ticket
+        </button>
+      </div>
+
+      <SavedTicketBanner
+        formatCurrency={formatCurrency}
+        formatDrawTime={formatDrawTime}
+        lastSavedTicket={lastSavedTicket}
+        lastSavedTicketId={lastSavedTicketId}
+        onDismissSavedTicket={onDismissSavedTicket}
+        onPrintSavedTicket={onPrintSavedTicket}
+      />
+    </section>
+  );
+}
+
 function SuperFastManualTool({
   activeMode,
+  activePanel,
+  bookingDateAdjusted,
   canClearTicket,
   canPrintDraft,
   canSave,
@@ -506,30 +633,36 @@ function SuperFastManualTool({
   currentDue,
   currentDate,
   currentDrawLabel,
-  dockRef,
+  date,
+  draftTicketId,
   draft,
+  drawOptions,
+  drawTime,
   editingKey,
   effectivePaidAmount,
   formatCurrency,
   formatDrawTime,
+  formatEntryCutoffTime,
   isEditing,
   lastSavedTicket,
   lastSavedTicketId,
   onAddRow,
+  onChangePanel,
   onClearMode,
   onClearTicket,
+  onDateChange,
   onDeleteRow,
   onDismissSavedTicket,
+  onDrawTimeChange,
   onEditRow,
-  onModeChange,
   onNumberChange,
-  onOpenDue,
   onPrintDraft,
   onPrintSavedTicket,
   onQuantityChange,
   onSaveTicket,
   onSelectDigit,
   onUndoLast,
+  maxBookingDate,
   previewSummary,
   quantityRef,
   recentRows,
@@ -538,6 +671,7 @@ function SuperFastManualTool({
   numberRef,
   paymentMode,
   previewLayout,
+  todayString,
 }) {
   const meta = getModeMeta(activeMode);
   const canSubmit = draft.number.length === meta.digits && Number(draft.quantity || 0) > 0;
@@ -545,107 +679,67 @@ function SuperFastManualTool({
   return (
     <div className="seller-manual-layout">
       <section className={`seller-entry-panel seller-manual-tool seller-manual-tool-${activeMode}`}>
-        <div className="seller-manual-head">
-          <div className="seller-manual-meta">
-            <div className="seller-manual-meta-pill">
-              <span>Date</span>
-              <strong>{currentDate}</strong>
-            </div>
-            <div className="seller-manual-meta-pill">
-              <span>Draw</span>
-              <strong>{currentDrawLabel}</strong>
-            </div>
-          </div>
-        </div>
+        <SellerEntryPopupTabs activePanel={activePanel} onChange={onChangePanel} />
 
-        <QuickAccessBar
-          activeMode={activeMode}
-          canClearTicket={canClearTicket}
-          onClearTicket={onClearTicket}
-          onModeChange={onModeChange}
-          onOpenDue={onOpenDue}
-        />
-
-        <ModeTabs activeMode={activeMode} onChange={onModeChange} />
-
-        <div className={`seller-manual-entry-shell seller-manual-entry-shell-${activeMode}`}>
-          <div className="seller-manual-mode-copy">
-            <span>{meta.label}</span>
-            <strong>{isEditing ? "Update current row" : "Add rows"}</strong>
-            <small>
-              {activeMode === "juri"
-                ? "Type a two-digit number and quantity, then add the row."
-                : "Tap a digit, type quantity, and add the row."}
-            </small>
-          </div>
-
-          <div className="seller-manual-mode-stats">
-            <ModeStat label="Rows" value={stats.rows} />
-            <ModeStat label="Qty" value={stats.qty} />
-            <ModeStat label="Amount" value={formatCurrency(stats.amount)} />
-          </div>
-
-          <QuantityShortcutBar
-            onApplyShortcut={(value) => onQuantityChange(value)}
-            onClearQuantity={() => onQuantityChange("")}
+        {activePanel === "info" ? (
+          <SellerEntryInfoPanel
+            bookingDateAdjusted={bookingDateAdjusted}
+            currentDate={currentDate}
+            currentDrawLabel={currentDrawLabel}
+            date={date}
+            draftTicketId={draftTicketId}
+            drawOptions={drawOptions}
+            drawTime={drawTime}
+            formatCurrency={formatCurrency}
+            formatEntryCutoffTime={formatEntryCutoffTime}
+            maxBookingDate={maxBookingDate}
+            onDateChange={onDateChange}
+            onDrawTimeChange={onDrawTimeChange}
+            previewSummary={previewSummary}
+            todayString={todayString}
           />
+        ) : null}
 
-          {activeMode === "juri" ? (
-            <div className="seller-manual-juri-form">
-              <label className="seller-entry-field">
-                <span>Juri Number</span>
-                <input
-                  ref={numberRef}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  enterKeyHint="next"
-                  maxLength={2}
-                  value={draft.number}
-                  placeholder="08"
-                  onChange={(event) => onNumberChange(event.target.value)}
-                />
-              </label>
-
-              <label className="seller-entry-field">
-                <span>Quantity</span>
-                <input
-                  ref={quantityRef}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  enterKeyHint="done"
-                  value={draft.quantity}
-                  placeholder="0"
-                  onChange={(event) => onQuantityChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      onAddRow();
-                    }
-                  }}
-                />
-              </label>
-
-              <button
-                type="button"
-                className="seller-manual-primary-btn"
-                onClick={onAddRow}
-                disabled={!canSubmit}
-              >
-                {isEditing ? "Update Row" : "Add Row"}
-              </button>
+        {["third", "fourth", "juri"].includes(activePanel) ? (
+          <div className={`seller-manual-entry-shell seller-manual-entry-shell-${activeMode}`}>
+            <div className="seller-manual-mode-copy">
+              <span>{meta.label}</span>
+              <strong>{isEditing ? "Update current row" : "Add rows"}</strong>
+              <small>
+                {activeMode === "juri"
+                  ? "Type a two-digit number and quantity, then add the row."
+                  : "Tap a digit, type quantity, and add the row."}
+              </small>
             </div>
-          ) : (
-            <div className="seller-manual-house-form">
-              <div className="seller-manual-selected-digit">
-                <span>Selected Digit</span>
-                <strong>{draft.number || "-"}</strong>
-              </div>
 
-              <HouseDigitPad selectedDigit={draft.number} onSelectDigit={onSelectDigit} />
+            <div className="seller-manual-mode-stats">
+              <ModeStat label="Rows" value={stats.rows} />
+              <ModeStat label="Qty" value={stats.qty} />
+              <ModeStat label="Amount" value={formatCurrency(stats.amount)} />
+            </div>
 
-              <div className="seller-manual-house-actions">
+            <QuantityShortcutBar
+              onApplyShortcut={(value) => onQuantityChange(value)}
+              onClearQuantity={() => onQuantityChange("")}
+            />
+
+            {activeMode === "juri" ? (
+              <div className="seller-manual-juri-form">
+                <label className="seller-entry-field">
+                  <span>Juri Number</span>
+                  <input
+                    ref={numberRef}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    enterKeyHint="next"
+                    maxLength={2}
+                    value={draft.number}
+                    placeholder="08"
+                    onChange={(event) => onNumberChange(event.target.value)}
+                  />
+                </label>
+
                 <label className="seller-entry-field">
                   <span>Quantity</span>
                   <input
@@ -672,52 +766,92 @@ function SuperFastManualTool({
                   onClick={onAddRow}
                   disabled={!canSubmit}
                 >
-                  {isEditing ? "Update Row" : `Add ${meta.shortLabel}`}
+                  {isEditing ? "Update Row" : "Add Row"}
                 </button>
               </div>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="seller-manual-house-form">
+                <div className="seller-manual-selected-digit">
+                  <span>Selected Digit</span>
+                  <strong>{draft.number || "-"}</strong>
+                </div>
 
-        <LivePreviewPanel
-          currentDue={currentDue}
-          effectivePaidAmount={effectivePaidAmount}
-          formatCurrency={formatCurrency}
-          hasPreviewRows={recentRows.length > 0}
-          paymentMode={paymentMode}
-          previewLayout={previewLayout}
-          previewSummary={previewSummary}
-        />
+                <HouseDigitPad selectedDigit={draft.number} onSelectDigit={onSelectDigit} />
 
-        <ManualRecentStrip
-          canClear={canClearTicket}
-          editingKey={editingKey}
-          rows={recentRows}
-          onClearTicket={onClearTicket}
-          onDelete={onDeleteRow}
-          onEdit={onEditRow}
-        />
+                <div className="seller-manual-house-actions">
+                  <label className="seller-entry-field">
+                    <span>Quantity</span>
+                    <input
+                      ref={quantityRef}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      enterKeyHint="done"
+                      value={draft.quantity}
+                      placeholder="0"
+                      onChange={(event) => onQuantityChange(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          onAddRow();
+                        }
+                      }}
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    className="seller-manual-primary-btn"
+                    onClick={onAddRow}
+                    disabled={!canSubmit}
+                  >
+                    {isEditing ? "Update Row" : `Add ${meta.shortLabel}`}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {activePanel === "save" ? (
+          <SellerEntrySavePanel
+            canClearTicket={canClearTicket}
+            canSave={canSave}
+            canUndo={canUndo}
+            editingKey={editingKey}
+            formatCurrency={formatCurrency}
+            onClearMode={onClearMode}
+            onClearTicket={onClearTicket}
+            onDeleteRow={onDeleteRow}
+            onEditRow={onEditRow}
+            onSaveTicket={onSaveTicket}
+            onUndoLast={onUndoLast}
+            previewSummary={previewSummary}
+            recentRows={recentRows}
+            saving={savingTicket}
+          />
+        ) : null}
+
+        {activePanel === "print" ? (
+          <SellerEntryPrintPanel
+            canPrintDraft={canPrintDraft}
+            currentDue={currentDue}
+            draftTicketId={draftTicketId}
+            effectivePaidAmount={effectivePaidAmount}
+            formatCurrency={formatCurrency}
+            formatDrawTime={formatDrawTime}
+            lastSavedTicket={lastSavedTicket}
+            lastSavedTicketId={lastSavedTicketId}
+            onDismissSavedTicket={onDismissSavedTicket}
+            onPrintDraft={onPrintDraft}
+            onPrintSavedTicket={onPrintSavedTicket}
+            paymentMode={paymentMode}
+            previewLayout={previewLayout}
+            previewSummary={previewSummary}
+            saving={savingTicket}
+          />
+        ) : null}
       </section>
-
-      <div ref={dockRef} className="seller-entry-dock seller-entry-dock-manual">
-        <ManualTotalsDock
-          canPrintDraft={canPrintDraft}
-          canSave={canSave}
-          canUndo={canUndo}
-          formatCurrency={formatCurrency}
-          formatDrawTime={formatDrawTime}
-          lastSavedTicket={lastSavedTicket}
-          lastSavedTicketId={lastSavedTicketId}
-          previewSummary={previewSummary}
-          saving={savingTicket}
-          onClearMode={onClearMode}
-          onDismissSavedTicket={onDismissSavedTicket}
-          onPrintDraft={onPrintDraft}
-          onPrintSavedTicket={onPrintSavedTicket}
-          onSaveTicket={onSaveTicket}
-          onUndoLast={onUndoLast}
-        />
-      </div>
     </div>
   );
 }
@@ -740,6 +874,7 @@ export default function SellerFastEntryBoard({
   juriText,
   lastSavedTicket,
   lastSavedTicketId,
+  draftTicketId,
   maxBookingDate,
   onActiveEntryModeChange,
   onDateChange,
@@ -747,7 +882,6 @@ export default function SellerFastEntryBoard({
   onDrawTimeChange,
   onFourthChange,
   onJuriTextChange,
-  onOpenDue,
   onPrintDraft,
   onPrintSavedTicket,
   onReset,
@@ -764,10 +898,9 @@ export default function SellerFastEntryBoard({
 }) {
   const [modeInputs, setModeInputs] = useState(() => buildInputState());
   const [editState, setEditState] = useState(null);
+  const [activePanel, setActivePanel] = useState("info");
   const [statusNotice, setStatusNotice] = useState(null);
   const [savingTicket, setSavingTicket] = useState(false);
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
-  const [dockHeight, setDockHeight] = useState(220);
   const [historyDepth, setHistoryDepth] = useState(0);
   const [recentKeys, setRecentKeys] = useState([]);
   const inputRefs = useRef({
@@ -785,7 +918,6 @@ export default function SellerFastEntryBoard({
       juriText,
     })
   );
-  const dockRef = useRef(null);
 
   const parsedJuriList = useMemo(() => parsedJuri || parseFastJuriText(juriText), [juriText, parsedJuri]);
   const modeRows = useMemo(
@@ -821,6 +953,7 @@ export default function SellerFastEntryBoard({
 
   useEffect(() => {
     setModeInputs(buildInputState());
+    setActivePanel("info");
     setEditState(null);
     setRecentKeys([]);
     draftHistoryRef.current = [];
@@ -831,48 +964,6 @@ export default function SellerFastEntryBoard({
     return () => {
       window.clearTimeout(focusTimeoutRef.current);
       window.clearTimeout(noticeTimeoutRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.visualViewport) {
-      return undefined;
-    }
-
-    const viewport = window.visualViewport;
-    const updateKeyboardOffset = () => {
-      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-      setKeyboardOffset(inset > 0 ? Math.round(inset) : 0);
-    };
-
-    updateKeyboardOffset();
-    viewport.addEventListener("resize", updateKeyboardOffset);
-    viewport.addEventListener("scroll", updateKeyboardOffset);
-
-    return () => {
-      viewport.removeEventListener("resize", updateKeyboardOffset);
-      viewport.removeEventListener("scroll", updateKeyboardOffset);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof ResizeObserver === "undefined" || !dockRef.current) {
-      return undefined;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) {
-        return;
-      }
-
-      setDockHeight(Math.ceil(entry.contentRect.height));
-    });
-
-    observer.observe(dockRef.current);
-
-    return () => {
-      observer.disconnect();
     };
   }, []);
 
@@ -1019,6 +1110,17 @@ export default function SellerFastEntryBoard({
     [activeEntryMode, onActiveEntryModeChange, scheduleFocus]
   );
 
+  const handlePanelChange = useCallback(
+    (panel) => {
+      setActivePanel(panel);
+
+      if (MODE_META[panel]) {
+        handleModeChange(panel);
+      }
+    },
+    [handleModeChange]
+  );
+
   const handleManualDigitSelect = useCallback(
     (digit) => {
       if (activeEntryMode === "juri") {
@@ -1101,6 +1203,7 @@ export default function SellerFastEntryBoard({
         mode: row.mode,
         originalNumber: row.number,
       });
+      setActivePanel(row.mode);
 
       if (row.mode !== activeEntryMode) {
         onActiveEntryModeChange(row.mode);
@@ -1210,16 +1313,8 @@ export default function SellerFastEntryBoard({
     }
   }, [hasPreviewRows, onSave, savingTicket]);
 
-  const boardStyle = useMemo(
-    () => ({
-      "--seller-entry-dock-space": hasPreviewRows ? `${dockHeight}px` : "0px",
-      "--seller-entry-keyboard-offset": `${keyboardOffset}px`,
-    }),
-    [dockHeight, hasPreviewRows, keyboardOffset]
-  );
-
   return (
-    <div className="seller-entry-shell seller-entry-shell-manual" style={boardStyle}>
+    <div className="seller-entry-shell seller-entry-shell-manual">
       <div className="fast-entry-topbar">
         <div className="section-header">
           <h2>{editingTicketId ? `Edit Ticket #${editingTicketId}` : "Seller Ticket Entry"}</h2>
@@ -1237,50 +1332,10 @@ export default function SellerFastEntryBoard({
         </div>
       ) : null}
 
-      <div className="fast-entry-booking-bar fast-entry-booking-bar-v2">
-        <div className="fast-entry-booking-pill">
-          <span>Booking For</span>
-          <strong>{effectiveTicketDate}</strong>
-          <small>
-            {formatDrawTime(drawTime)}
-            {bookingDateAdjusted ? ` | moved after ${formatEntryCutoffTime(drawTime)}` : ""}
-          </small>
-        </div>
-
-        <label className="fast-entry-control">
-          <span>Date</span>
-          <input
-            type="date"
-            min={todayString}
-            max={maxBookingDate}
-            value={date}
-            onChange={(event) => onDateChange(event.target.value)}
-          />
-        </label>
-
-        <label className="fast-entry-control">
-          <span>Draw</span>
-          <select value={drawTime} onChange={(event) => onDrawTimeChange(event.target.value)}>
-            {drawOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="fast-entry-booking-note">
-        <strong>Manual Entry Active</strong>
-        <span>
-          {bookingDateAdjusted
-            ? `${formatDrawTime(drawTime)} last entry closed at ${formatEntryCutoffTime(drawTime)} for ${date}. Ticket moves to ${effectiveTicketDate}.`
-            : `${formatDrawTime(drawTime)} ticket entry is open for ${effectiveTicketDate} until ${formatEntryCutoffTime(drawTime)}.`}
-        </span>
-      </div>
-
       <SuperFastManualTool
         activeMode={activeEntryMode}
+        activePanel={activePanel}
+        bookingDateAdjusted={bookingDateAdjusted}
         canClearTicket={hasPreviewRows}
         canPrintDraft={hasPreviewRows}
         canSave={hasPreviewRows}
@@ -1288,25 +1343,31 @@ export default function SellerFastEntryBoard({
         currentDue={currentDue}
         currentDate={effectiveTicketDate}
         currentDrawLabel={formatDrawTime(drawTime)}
-        dockRef={dockRef}
+        date={date}
+        draftTicketId={draftTicketId}
         draft={activeInputs}
+        drawOptions={drawOptions}
+        drawTime={drawTime}
         editingKey={editState && editState.key}
         effectivePaidAmount={effectivePaidAmount}
         formatCurrency={formatCurrency}
         formatDrawTime={formatDrawTime}
+        formatEntryCutoffTime={formatEntryCutoffTime}
         isEditing={Boolean(editState && editState.mode === activeEntryMode)}
         lastSavedTicket={lastSavedTicket}
         lastSavedTicketId={lastSavedTicketId}
+        maxBookingDate={maxBookingDate}
         numberRef={registerInputRef(activeEntryMode, "number")}
         onAddRow={handleManualSubmit}
+        onChangePanel={handlePanelChange}
         onClearMode={handleResetCurrentMode}
         onClearTicket={handleClearAll}
+        onDateChange={onDateChange}
         onDeleteRow={handleDeleteRow}
         onDismissSavedTicket={onDismissSavedTicket}
+        onDrawTimeChange={onDrawTimeChange}
         onEditRow={handleEditRow}
-        onModeChange={handleModeChange}
         onNumberChange={(value) => updateModeInput(activeEntryMode, "number", value)}
-        onOpenDue={onOpenDue}
         onPrintDraft={onPrintDraft}
         onPrintSavedTicket={onPrintSavedTicket}
         onQuantityChange={(value) => updateModeInput(activeEntryMode, "quantity", value)}
@@ -1320,6 +1381,7 @@ export default function SellerFastEntryBoard({
         stats={activeModeStats}
         paymentMode={paymentMode}
         previewLayout={previewLayout}
+        todayString={todayString}
       />
     </div>
   );

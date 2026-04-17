@@ -4,9 +4,16 @@ import { load } from "./storage.js";
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || resolveApiBaseUrl();
 const REQUEST_TIMEOUT_MS = 6000;
 export const AUTH_EXPIRED_EVENT = "lottery-auth-expired";
+export const MAINTENANCE_EVENT = "lottery-maintenance-mode";
 
 export const BACKEND_UNAVAILABLE_MESSAGE = "Unable to reach the backend server.";
 export const BACKEND_TIMEOUT_MESSAGE = "The backend took too long to respond.";
+export const DEFAULT_MAINTENANCE_TITLE = "Updating Server";
+export const DEFAULT_MAINTENANCE_MESSAGE =
+  "Updating server maintenance. Please wait a short time.";
+export const DEFAULT_MAINTENANCE_COMPLETION_MESSAGE =
+  "Refresh or reopen after update is complete.";
+export const DEFAULT_MAINTENANCE_ACTION_LABEL = "Refresh";
 
 export async function fetchBootstrap() {
   const response = await apiRequest("/bootstrap");
@@ -212,6 +219,18 @@ async function apiRequest(pathname, options = {}) {
   } catch {}
 
   if (!response.ok) {
+    const maintenanceState = getMaintenanceStateFromPayload(payload);
+
+    if (response.status === 503 && maintenanceState && maintenanceState.enabled) {
+      dispatchMaintenanceMode(maintenanceState);
+
+      const maintenanceError = new Error(maintenanceState.message);
+      maintenanceError.status = response.status;
+      maintenanceError.maintenance = true;
+      maintenanceError.maintenanceState = maintenanceState;
+      throw maintenanceError;
+    }
+
     const error = new Error(payload.message || "API request failed");
     error.status = response.status;
 
@@ -254,6 +273,31 @@ export function mapResultsToLookup(results = []) {
 
 export { API_BASE_URL };
 
+export function getMaintenanceStateFromPayload(payload) {
+  const maintenance =
+    payload && payload.maintenance && typeof payload.maintenance === "object"
+      ? payload.maintenance
+      : null;
+
+  if (!maintenance) {
+    return null;
+  }
+
+  return {
+    enabled: Boolean(maintenance.enabled),
+    title: String(maintenance.title || DEFAULT_MAINTENANCE_TITLE),
+    message: String(maintenance.message || DEFAULT_MAINTENANCE_MESSAGE),
+    completionMessage: String(
+      maintenance.completionMessage || DEFAULT_MAINTENANCE_COMPLETION_MESSAGE
+    ),
+    actionLabel: String(maintenance.actionLabel || DEFAULT_MAINTENANCE_ACTION_LABEL),
+    retryAfterSeconds:
+      Number(maintenance.retryAfterSeconds) > 0 ? Number(maintenance.retryAfterSeconds) : 30,
+    updatedAt: String(maintenance.updatedAt || ""),
+    source: String(maintenance.source || ""),
+  };
+}
+
 function getAuthHeaders() {
   const session = load(PANEL_SESSION_KEY, null);
   const token = session && session.token ? session.token : "";
@@ -280,6 +324,24 @@ function dispatchAuthExpired(message) {
     window.dispatchEvent(
       new CustomEvent(AUTH_EXPIRED_EVENT, {
         detail: { message },
+      })
+    );
+  } catch {}
+}
+
+function dispatchMaintenanceMode(maintenanceState) {
+  if (
+    typeof window === "undefined" ||
+    typeof window.dispatchEvent !== "function" ||
+    !maintenanceState
+  ) {
+    return;
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent(MAINTENANCE_EVENT, {
+        detail: maintenanceState,
       })
     );
   } catch {}

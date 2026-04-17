@@ -11,7 +11,7 @@
 }
 
 .seller-entry-shell-manual {
-  padding-bottom: calc(var(--seller-entry-dock-space) + 14px + env(safe-area-inset-bottom));
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
 }
 
 .seller-entry-panel {
@@ -24,35 +24,60 @@
   border: 1px solid var(--seller-entry-panel-border);
 }
 
-.seller-entry-tabs {
+.seller-popup-tabs {
+  position: sticky;
+  top: calc(8px + env(safe-area-inset-top));
+  z-index: 9;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(78px, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(3, 8, 18, 0.96);
+  border: 1px solid rgba(83, 104, 144, 0.24);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.seller-entry-tab {
-  min-height: 68px;
-  padding: 10px 12px;
-  border-radius: 18px;
-  border: 1px solid rgba(83, 104, 144, 0.28);
-  background: rgba(5, 11, 21, 0.92);
+.seller-popup-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.seller-popup-tab {
+  min-height: 42px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(83, 104, 144, 0.24);
+  background: rgba(7, 13, 24, 0.96);
   color: var(--seller-entry-text);
   display: grid;
-  gap: 4px;
-  text-align: left;
+  place-items: center;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow: none;
 }
 
-.seller-entry-tab span,
+.seller-popup-tab.active {
+  border-color: var(--seller-manual-accent);
+  background: linear-gradient(135deg, var(--seller-manual-accent-soft), rgba(7, 13, 24, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.seller-popup-copy span,
 .seller-entry-field span,
 .seller-entry-mode-stat span,
 .seller-manual-title span,
-.seller-manual-meta-pill span,
 .seller-manual-mode-copy span,
 .seller-manual-recent-head span,
 .seller-manual-saved-copy span,
 .seller-manual-selected-digit span,
 .seller-manual-chip-copy span,
-.seller-manual-total-cell span {
+.seller-manual-total-cell span,
+.seller-popup-meta-card span {
   color: var(--seller-entry-accent);
   font-size: 0.72rem;
   font-weight: 800;
@@ -60,34 +85,16 @@
   text-transform: uppercase;
 }
 
-.seller-entry-tab strong,
+.seller-popup-copy strong,
 .seller-manual-title strong,
 .seller-manual-mode-copy strong,
 .seller-manual-recent-head strong,
 .seller-manual-saved-copy strong,
 .seller-manual-selected-digit strong,
 .seller-manual-chip-copy strong,
-.seller-manual-total-cell strong {
+.seller-manual-total-cell strong,
+.seller-popup-meta-card strong {
   color: var(--seller-entry-text);
-}
-
-.seller-entry-tab.active {
-  border-color: rgba(121, 203, 255, 0.62);
-  background: rgba(10, 21, 38, 0.98);
-}
-
-.seller-entry-tab-third.active {
-  box-shadow: inset 0 0 0 1px rgba(78, 178, 255, 0.22);
-}
-
-.seller-entry-tab-fourth.active {
-  border-color: rgba(251, 146, 60, 0.56);
-  box-shadow: inset 0 0 0 1px rgba(251, 146, 60, 0.2);
-}
-
-.seller-entry-tab-juri.active {
-  border-color: rgba(192, 132, 252, 0.56);
-  box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.2);
 }
 
 .seller-entry-mode-stat {
@@ -110,13 +117,19 @@
   gap: 16px;
 }
 
-.seller-quick-access-bar,
 .seller-live-preview-card,
 .seller-live-preview-head,
 .seller-live-preview-stats,
 .seller-live-preview-stat,
 .seller-live-preview-format,
-.seller-qty-shortcuts {
+.seller-qty-shortcuts,
+.seller-popup-panel,
+.seller-popup-copy,
+.seller-popup-control-grid,
+.seller-popup-meta-grid,
+.seller-popup-meta-card,
+.seller-popup-print-actions,
+.seller-popup-save-actions {
   display: grid;
   gap: 10px;
 }
@@ -181,6 +194,44 @@
 
 .seller-manual-meta {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.seller-popup-panel {
+  padding: 14px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, var(--seller-manual-accent-soft), transparent 42%),
+    rgba(4, 10, 20, 0.92);
+  border: 1px solid rgba(95, 116, 152, 0.24);
+}
+
+.seller-popup-copy small {
+  color: var(--seller-entry-soft);
+  line-height: 1.5;
+}
+
+.seller-popup-meta-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.seller-popup-meta-card,
+.seller-popup-meta-card-wide {
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(76, 95, 130, 0.24);
+  background: rgba(4, 10, 20, 0.92);
+}
+
+.seller-popup-meta-card-wide {
+  grid-column: span 1;
+}
+
+.seller-popup-control-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.seller-popup-print-actions {
+  grid-template-columns: 1fr;
 }
 
 .seller-manual-meta-pill,
@@ -491,11 +542,6 @@
 }
 
 @media (min-width: 760px) {
-  .seller-manual-head {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
-  }
-
   .seller-manual-recent-head {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
@@ -523,15 +569,13 @@
   .seller-manual-chip-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .seller-popup-meta-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 980px) {
-  .seller-entry-dock {
-    position: sticky;
-    bottom: calc(var(--seller-entry-keyboard-offset) + env(safe-area-inset-bottom));
-    z-index: 8;
-  }
-
   .seller-manual-totals-bar {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -556,22 +600,28 @@
     border-radius: 20px;
   }
 
-  .seller-entry-tab {
-    min-height: 64px;
-    padding: 10px;
+  .seller-popup-tabs {
+    top: calc(6px + env(safe-area-inset-top));
+    grid-auto-columns: minmax(70px, 1fr);
+    gap: 6px;
+    padding: 5px;
   }
 
-  .seller-entry-tab strong {
-    font-size: 0.9rem;
-  }
-
-  .seller-quick-access-bar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .seller-popup-tab {
+    min-height: 40px;
+    padding: 8px 8px;
+    font-size: 0.74rem;
   }
 
   .seller-qty-shortcuts,
-  .seller-live-preview-stats {
+  .seller-live-preview-stats,
+  .seller-popup-meta-grid,
+  .seller-popup-control-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .seller-popup-meta-card-wide {
+    grid-column: 1 / -1;
   }
 
   .seller-live-preview-head {

@@ -6,6 +6,12 @@ const path = require("path");
 const { URL } = require("url");
 
 const {
+  canSessionAccessSeller,
+  getAccessibleSellerUsernameSet,
+  getAccessibleSellers,
+  normalizeUsername,
+} = require("./lib/access");
+const {
   createAdmin,
   createSeller,
   createTicket,
@@ -23,6 +29,7 @@ const {
   buildRiskBoard,
   buildSellerReport,
 } = require("./lib/reports");
+const { getMaintenanceState } = require("./lib/maintenance");
 const {
   getDb,
   getStorageInfo,
@@ -48,6 +55,7 @@ const PASSWORD_HASH_PREFIX = "scrypt$";
 const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_ATTEMPT_BLOCK_MS = 15 * 60 * 1000;
 const LOGIN_ATTEMPT_LIMIT = 7;
+const MAINTENANCE_STATUS_CODE = 503;
 const loginAttempts = new Map();
 
 const server = http.createServer(async (req, res) => {
@@ -62,6 +70,7 @@ const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = requestUrl.pathname;
   const authSession = getAuthSession(req);
+  const maintenanceState = getMaintenanceState();
 
   try {
     if (req.method === "GET" && pathname === "/api/health") {
@@ -70,12 +79,27 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         service: "lottery-control-backend",
         time: new Date().toISOString(),
+        maintenance: maintenanceState,
         storage: {
           mode: storage.usingExternalStorage ? "external" : "bundled",
           initializationMode: storage.initializationMode,
           migrationSource: storage.migrationSource ? path.basename(storage.migrationSource) : "",
         },
       });
+    }
+
+    if (req.method === "GET" && pathname === "/api/bootstrap") {
+      const db = getDb();
+      return sendJson(res, 200, {
+        ok: true,
+        sellers: db.sellers.map(toPublicSeller),
+        settings: db.settings,
+        maintenance: maintenanceState,
+      });
+    }
+
+    if (pathname.startsWith("/api/") && maintenanceState.enabled) {
+      return sendMaintenanceResponse(res, maintenanceState);
     }
 
     if (req.method === "POST" && pathname === "/api/auth/login") {
@@ -267,15 +291,6 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (req.method === "GET" && pathname === "/api/bootstrap") {
-      const db = getDb();
-      return sendJson(res, 200, {
-        ok: true,
-        sellers: db.sellers.map(toPublicSeller),
-        settings: db.settings,
-      });
-    }
-
     if (pathname === "/api/sellers" && req.method === "GET") {
       if (!ensureAnyRole(res, authSession, ["admin", "master"])) {
         return;
@@ -284,12 +299,12 @@ const server = http.createServer(async (req, res) => {
       const db = getDb();
       return sendJson(res, 200, {
         ok: true,
-        sellers: db.sellers.map(toPublicSeller),
+        sellers: getScopedSellers(db, authSession).map(toPublicSeller),
       });
     }
 
     if (pathname === "/api/sellers" && req.method === "POST") {
-      if (!ensureAnyRole(res, authSession, ["admin", "master"])) {
+      if (!ensureRole(res, authSession, "admin")) {
         return;
       }
 
@@ -305,6 +320,10 @@ const server = http.createServer(async (req, res) => {
             ...payload,
             password: hashPassword(payload.password),
             active: payload.active !== undefined ? payload.active : true,
+            ownerAdminId:
+              authSession.role === "admin"
+                ? authSession.adminId
+                : getPrimaryAdminId(current),
           }, current.sellers)
         );
         return current;
@@ -312,12 +331,12 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 201, {
         ok: true,
-        sellers: db.sellers.map(toPublicSeller),
+        sellers: getScopedSellers(db, authSession).map(toPublicSeller),
       });
     }
 
     if (pathname.startsWith("/api/sellers/") && req.method === "PATCH") {
-      if (!ensureAnyRole(res, authSession, ["admin", "master"])) {
+      if (!ensureRole(res, authSession, "admin")) {
         return;
       }
 
@@ -328,14 +347,13 @@ const server = http.createServer(async (req, res) => {
       });
 
       const db = updateDb((current) => {
-        const existingSeller = current.sellers.find(
-          (seller) => String(seller.id) === sellerId
-        );
+        const existingSeller = findSellerById(current, sellerId);
 
         if (!existingSeller) {
           throw new Error("Seller not found");
         }
 
+        ensureSessionCanAccessSeller(current, authSession, existingSeller);
         validateSellerUpdatePayload(payload);
 
         if (payload.username) {
@@ -354,7 +372,7 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         ok: true,
-        sellers: db.sellers.map(toPublicSeller),
+        sellers: getScopedSellers(db, authSession).map(toPublicSeller),
       });
     }
 
@@ -368,7 +386,7 @@ const server = http.createServer(async (req, res) => {
       const drawTime = requestUrl.searchParams.get("drawTime");
       const sellerUsername = requestUrl.searchParams.get("sellerUsername");
 
-      let tickets = db.tickets;
+      let tickets = getScopedTickets(db, authSession);
 
       if (date) {
         tickets = tickets.filter((ticket) => ticket.date === date);
@@ -378,12 +396,7 @@ const server = http.createServer(async (req, res) => {
         tickets = tickets.filter((ticket) => ticket.drawTime === drawTime);
       }
 
-      if (authSession.role === "seller") {
-        tickets = tickets.filter(
-          (ticket) =>
-            normalizeUsername(ticket.sellerUsername) === normalizeUsername(authSession.username)
-        );
-      } else if (sellerUsername) {
+      if (sellerUsername) {
         tickets = tickets.filter(
           (ticket) =>
             normalizeUsername(ticket.sellerUsername) === normalizeUsername(sellerUsername)
@@ -403,6 +416,29 @@ const server = http.createServer(async (req, res) => {
 
       const body = await readJsonBody(req);
       const db = updateDb((current) => {
+        const requestedSellerUsername =
+          authSession.role === "seller"
+            ? authSession.username
+            : String(body && body.sellerUsername ? body.sellerUsername : "").trim();
+
+        if (!requestedSellerUsername) {
+          throw new ValidationError("sellerUsername is required");
+        }
+
+        if (authSession.role === "admin") {
+          ensureSessionCanAccessSellerUsername(
+            current,
+            authSession,
+            requestedSellerUsername
+          );
+        } else if (authSession.role === "master") {
+          const existingSeller = findSellerByUsername(current, requestedSellerUsername);
+
+          if (!existingSeller) {
+            throw new ValidationError("Seller not found");
+          }
+        }
+
         const ticketPayload = prepareTicketCreatePayload(
           authSession.role === "seller"
             ? {
@@ -420,7 +456,7 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 201, {
         ok: true,
-        tickets: db.tickets,
+        tickets: getScopedTickets(db, authSession),
       });
     }
 
@@ -448,6 +484,14 @@ const server = http.createServer(async (req, res) => {
           throw new ForbiddenError(FORBIDDEN_MESSAGE);
         }
 
+        if (authSession.role === "admin") {
+          ensureSessionCanAccessSellerUsername(
+            current,
+            authSession,
+            existingTicket.sellerUsername
+          );
+        }
+
         const { sellerUsername: _sellerUsername, ...safeTicketBody } = body || {};
         const ticketPayload = prepareTicketUpdatePayload(
           existingTicket,
@@ -467,7 +511,7 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         ok: true,
-        tickets: db.tickets,
+        tickets: getScopedTickets(db, authSession),
       });
     }
 
@@ -570,9 +614,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       const db = getDb();
+      const tickets = getScopedTickets(db, authSession);
       return sendJson(res, 200, {
         ok: true,
-        overview: buildAdminOverview(db.tickets, db.results),
+        overview: buildAdminOverview(tickets, db.results),
       });
     }
 
@@ -584,7 +629,7 @@ const server = http.createServer(async (req, res) => {
       const db = getDb();
       const date = requestUrl.searchParams.get("date");
       const drawTime = requestUrl.searchParams.get("drawTime");
-      const tickets = db.tickets.filter((ticket) => {
+      const tickets = getScopedTickets(db, authSession).filter((ticket) => {
         if (date && ticket.date !== date) {
           return false;
         }
@@ -634,11 +679,12 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const seller = db.sellers.find(
-        (item) => normalizeUsername(item.username) === normalizeUsername(sellerUsername)
-      );
+      const seller =
+        authSession.role === "admin"
+          ? ensureSessionCanAccessSellerUsername(db, authSession, sellerUsername)
+          : findSellerByUsername(db, sellerUsername);
 
-      const tickets = db.tickets.filter((ticket) => {
+      const tickets = getScopedTickets(db, authSession).filter((ticket) => {
         if (
           normalizeUsername(ticket.sellerUsername) !== normalizeUsername(sellerUsername)
         ) {
@@ -685,9 +731,19 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      if (authSession.role === "admin" && sellerUsername) {
+        ensureSessionCanAccessSellerUsername(db, authSession, sellerUsername);
+      }
+
       return sendJson(res, 200, {
         ok: true,
-        report: buildRangeReportMetrics(db.tickets, db.results, range, today, sellerUsername),
+        report: buildRangeReportMetrics(
+          getScopedTickets(db, authSession),
+          db.results,
+          range,
+          today,
+          sellerUsername
+        ),
       });
     }
 
@@ -902,6 +958,9 @@ server.listen(PORT, HOST, () => {
   } else {
     console.log("Persistent storage is active. Future code deploys will keep existing data.");
   }
+  if (getMaintenanceState().enabled) {
+    console.warn("Maintenance mode is active. The app will show an updating screen until it is turned off.");
+  }
   console.log(`Loaded ${db.sellers.length} seller(s), ${db.tickets.length} ticket(s), ${db.results.length} result(s)`);
 });
 
@@ -918,12 +977,45 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload, null, 2));
 }
 
-function extractId(pathname, prefix) {
-  return pathname.slice(prefix.length).split("/")[0];
+function sendMaintenanceResponse(res, maintenanceState) {
+  const payload = buildMaintenancePayload(maintenanceState);
+
+  if (payload.retryAfterSeconds > 0) {
+    res.setHeader("Retry-After", String(payload.retryAfterSeconds));
+  }
+
+  sendJson(res, MAINTENANCE_STATUS_CODE, {
+    ok: false,
+    maintenance: payload,
+    message: payload.message,
+  });
 }
 
-function normalizeUsername(value) {
-  return String(value || "").trim().toLowerCase();
+function buildMaintenancePayload(maintenanceState = {}) {
+  const currentState =
+    maintenanceState && typeof maintenanceState === "object"
+      ? maintenanceState
+      : getMaintenanceState();
+
+  return {
+    enabled: Boolean(currentState.enabled),
+    title: String(currentState.title || "Updating Server"),
+    message: String(
+      currentState.message || "Updating server maintenance. Please wait a short time."
+    ),
+    completionMessage: String(
+      currentState.completionMessage || "Refresh or reopen after update is complete."
+    ),
+    actionLabel: String(currentState.actionLabel || "Refresh"),
+    retryAfterSeconds:
+      Number(currentState.retryAfterSeconds) > 0 ? Number(currentState.retryAfterSeconds) : 30,
+    updatedAt: String(currentState.updatedAt || ""),
+    source: String(currentState.source || ""),
+  };
+}
+
+function extractId(pathname, prefix) {
+  return pathname.slice(prefix.length).split("/")[0];
 }
 
 function hashPassword(password) {
@@ -1183,6 +1275,11 @@ function getPrimaryAdmin(db = {}) {
   return getAdminAccounts(db)[0] || normalizeAdmin(DEFAULT_DB.admin, 0);
 }
 
+function getPrimaryAdminId(db = {}) {
+  const primaryAdmin = getPrimaryAdmin(db);
+  return primaryAdmin ? primaryAdmin.id : null;
+}
+
 function syncAdminAccounts(current, admins = []) {
   const nextAdmins =
     Array.isArray(admins) && admins.length > 0
@@ -1212,6 +1309,88 @@ function findAdminAccountBySession(db = {}, session = {}) {
     findAdminAccountByUsername(db, session.username) ||
     getPrimaryAdmin(db)
   );
+}
+
+function findSellerById(db = {}, sellerId) {
+  return (
+    (Array.isArray(db.sellers) ? db.sellers : []).find(
+      (seller) => String(seller.id) === String(sellerId)
+    ) || null
+  );
+}
+
+function findSellerByUsername(db = {}, username) {
+  return (
+    (Array.isArray(db.sellers) ? db.sellers : []).find(
+      (seller) =>
+        normalizeUsername(seller.username) === normalizeUsername(username)
+    ) || null
+  );
+}
+
+function getScopedSellers(db = {}, session = null) {
+  return getAccessibleSellers(db.sellers, session, {
+    primaryAdminId: getPrimaryAdminId(db),
+  });
+}
+
+function getScopedSellerUsernameSet(db = {}, session = null) {
+  return getAccessibleSellerUsernameSet(db.sellers, session, {
+    primaryAdminId: getPrimaryAdminId(db),
+  });
+}
+
+function getScopedTickets(db = {}, session = null) {
+  const tickets = Array.isArray(db.tickets) ? db.tickets : [];
+
+  if (!session) {
+    return [];
+  }
+
+  if (session.role === "seller") {
+    return tickets.filter(
+      (ticket) =>
+        normalizeUsername(ticket.sellerUsername) === normalizeUsername(session.username)
+    );
+  }
+
+  if (session.role === "admin") {
+    const scopedSellerUsernames = getScopedSellerUsernameSet(db, session);
+
+    return tickets.filter((ticket) =>
+      scopedSellerUsernames.has(normalizeUsername(ticket.sellerUsername))
+    );
+  }
+
+  return tickets;
+}
+
+function ensureSessionCanAccessSeller(db = {}, session = null, seller = null) {
+  if (!seller) {
+    throw new Error("Seller not found");
+  }
+
+  if (
+    session &&
+    session.role === "admin" &&
+    !canSessionAccessSeller(seller, session, {
+      primaryAdminId: getPrimaryAdminId(db),
+    })
+  ) {
+    throw new ForbiddenError(FORBIDDEN_MESSAGE);
+  }
+
+  return seller;
+}
+
+function ensureSessionCanAccessSellerUsername(db = {}, session = null, sellerUsername = "") {
+  const seller = findSellerByUsername(db, sellerUsername);
+
+  if (!seller) {
+    throw new ValidationError("Seller not found");
+  }
+
+  return ensureSessionCanAccessSeller(db, session, seller);
 }
 
 function toPublicAdmin(admin = {}) {
