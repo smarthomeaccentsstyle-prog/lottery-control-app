@@ -10,6 +10,9 @@
 
 # production
 /build
+/server/data/exports
+/server/data/recovery
+/server/data/snapshots
 
 # misc
 .DS_Store

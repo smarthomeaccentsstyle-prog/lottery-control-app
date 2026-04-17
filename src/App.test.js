@@ -2,6 +2,7 @@ import React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { resetServerClock } from "./untils/serverClock";
 
 const STORAGE_KEY = "seller-panel-state-v3";
 const SESSION_KEY = "lottery-panel-session-v1";
@@ -159,7 +160,7 @@ function setPathname(pathname) {
 }
 
 function mockSystemDate(isoString) {
-  const fixedDate = new REAL_DATE(isoString);
+  const fixedDate = createIndiaLocalDate(isoString);
 
   global.Date = class extends REAL_DATE {
     constructor(value) {
@@ -178,6 +179,28 @@ function mockSystemDate(isoString) {
       return REAL_DATE.UTC(...args);
     }
   };
+}
+
+function createIndiaLocalDate(value) {
+  const input = String(value || "").trim();
+
+  if (!input) {
+    return new REAL_DATE();
+  }
+
+  if (/[zZ]|[+-]\d{2}:\d{2}$/.test(input)) {
+    return new REAL_DATE(input);
+  }
+
+  const [datePart = "", timePart = "00:00:00"] = input.split("T");
+  const [year = 0, month = 1, day = 1] = datePart.split("-").map((part) => Number(part) || 0);
+  const [hour = 0, minute = 0, second = 0] = timePart
+    .split(":")
+    .map((part) => Number(part) || 0);
+
+  return new REAL_DATE(
+    REAL_DATE.UTC(year, month - 1, day, hour, minute - 330, second)
+  );
 }
 
 function setInputValue(element, value) {
@@ -266,6 +289,7 @@ function findManualDigitButton(container, digit) {
 
 beforeEach(() => {
   localStorage.clear();
+  resetServerClock();
   setPathname("/");
   global.fetch = createSuccessFetchMock();
 });
@@ -274,6 +298,7 @@ afterEach(() => {
   jest.resetAllMocks();
   delete global.fetch;
   global.Date = REAL_DATE;
+  resetServerClock();
   setPathname("/");
 });
 
@@ -733,6 +758,87 @@ test("moves 1 PM ticket to next day after 12:58 PM cutoff", async () => {
       paidAmount: "",
     })
   );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const bookingDateInput = container.querySelector('input[type="date"]');
+  const bookingDateDisplay = container.querySelector(".fast-entry-booking-pill strong");
+
+  expect(bookingDateDisplay.textContent).toBe("2026-04-07");
+  expect(bookingDateInput.value).toBe("2026-04-07");
+  await unmountApp(root);
+});
+
+test("uses backend India time instead of device time for seller draw cutoff", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  mockSystemDate("2026-04-06T03:00:00");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      tickets: [],
+      winResults: {},
+      customerName: "",
+      customerPhone: "",
+      date: "2026-04-06",
+      drawTime: "13:00",
+      paymentMode: "Paid",
+      paidAmount: "",
+    })
+  );
+
+  const backendIstAfterCutoff = new Date("2026-04-06T07:29:00.000Z").getTime();
+  global.fetch = jest.fn((url) => {
+    const endpoint = String(url);
+
+    if (endpoint.includes("/bootstrap")) {
+      return createJsonResponse({
+        sellers: [PUBLIC_SELLER],
+        serverTime: {
+          epochMs: backendIstAfterCutoff,
+          timeZone: "Asia/Kolkata",
+        },
+      });
+    }
+
+    if (endpoint.includes("/auth/session")) {
+      return createJsonResponse({
+        session: JSON.parse(localStorage.getItem(SESSION_KEY)),
+        serverTime: {
+          epochMs: backendIstAfterCutoff,
+          timeZone: "Asia/Kolkata",
+        },
+      });
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets: [] });
+    }
+
+    if (endpoint.includes("/results")) {
+      return createJsonResponse({ results: [] });
+    }
+
+    if (endpoint.includes("/reports/summary")) {
+      return createJsonResponse({ report: {} });
+    }
+
+    if (endpoint.includes("/reports/seller")) {
+      return createJsonResponse({ report: {} });
+    }
+
+    return createJsonResponse({});
+  });
 
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -1618,7 +1724,7 @@ test("shows seller accounts as read-only in master panel", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  expect(container.textContent).toContain("seller(s) view only");
+  expect(container.textContent).toContain("Master can read seller performance here");
   expect(container.textContent).toContain("seller create, edit, password reset, and");
   expect(container.textContent).not.toContain("Add Seller");
   expect(container.textContent).not.toContain("Update Seller");

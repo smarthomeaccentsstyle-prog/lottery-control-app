@@ -1,4 +1,5 @@
 import { PANEL_SESSION_KEY } from "./adminStorage.js";
+import { syncServerClock } from "./serverClock.js";
 import { load } from "./storage.js";
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || resolveApiBaseUrl();
@@ -217,6 +218,10 @@ async function apiRequest(pathname, options = {}) {
   try {
     payload = await response.json();
   } catch {}
+
+  if (payload && typeof payload === "object" && payload.serverTime) {
+    syncServerClock(payload.serverTime);
+  }
 
   if (!response.ok) {
     const maintenanceState = getMaintenanceStateFromPayload(payload);

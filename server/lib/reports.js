@@ -2,15 +2,10 @@ const SINGLE_RATE = 11;
 const SINGLE_PAYOUT = 100;
 const JURI_RATE = 10;
 const JURI_PAYOUT = 600;
-
-const DRAW_OPTIONS = [
-  { value: "11:00", label: "11:00 AM", cutoff: "11:10" },
-  { value: "13:00", label: "1:00 PM", cutoff: "12:58" },
-  { value: "15:00", label: "3:00 PM", cutoff: "15:10" },
-  { value: "18:00", label: "6:00 PM", cutoff: "17:58" },
-  { value: "19:00", label: "7:00 PM", cutoff: "19:10" },
-  { value: "20:00", label: "8:00 PM", cutoff: "19:58" },
-];
+const {
+  DRAW_SCHEDULE: DRAW_OPTIONS,
+  isTicketLocked,
+} = require("./drawTiming");
 
 function buildRiskBoard(tickets) {
   const activeTickets = tickets.filter((ticket) => !ticket.cancelled);
@@ -295,18 +290,7 @@ function getTicketStatus(ticket) {
 }
 
 function isLocked(ticket) {
-  if (!ticket || !ticket.date || !ticket.drawTime) {
-    return false;
-  }
-
-  const now = new Date();
-  const draw = new Date(`${ticket.date}T${getEntryCutoffValue(ticket.drawTime)}:00`);
-  return now > draw;
-}
-
-function getEntryCutoffValue(drawTime) {
-  const match = DRAW_OPTIONS.find((option) => option.value === drawTime);
-  return match && match.cutoff ? match.cutoff : drawTime;
+  return isTicketLocked(ticket);
 }
 
 function createDigitList(length) {

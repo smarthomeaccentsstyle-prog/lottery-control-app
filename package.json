@@ -14,10 +14,12 @@
     "start:prod": "node server/index.js",
     "server": "node server/index.js",
     "network-info": "node scripts/network-info.js",
+    "backup:export": "node scripts/export-backup.js",
     "maintenance:on": "node scripts/maintenance-mode.js on",
     "maintenance:off": "node scripts/maintenance-mode.js off",
     "maintenance:status": "node scripts/maintenance-mode.js status",
     "build": "react-scripts build",
+    "test:server": "node --test server/lib/*.test.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

@@ -3,11 +3,13 @@ const path = require("path");
 
 const {
   DEFAULT_DB,
+  DB_SCHEMA_VERSION,
   normalizeAdmin,
   normalizeSeller,
   normalizeTicket,
 } = require("./models");
 const { getSellerOwnerAdminId } = require("./access");
+const { normalizeSessionList } = require("./sessionStore");
 
 const APP_ROOT = path.join(__dirname, "..", "..");
 const DEFAULT_DATA_DIR = path.join(__dirname, "..", "data");
@@ -54,7 +56,7 @@ function ensureDbFile() {
     return;
   }
 
-  writeJsonFileAtomic(DB_FILE, buildDbSnapshot(DEFAULT_DB));
+  writeJsonFileAtomic(DB_FILE, finalizeDbSnapshot(DEFAULT_DB, DEFAULT_DB));
   markRuntimeInitialized("default");
 }
 
@@ -80,7 +82,7 @@ function getDb() {
 
 function writeDb(db, fallback = DEFAULT_DB, options = {}) {
   ensureDbFile();
-  const snapshot = buildDbSnapshot(db, fallback);
+  const snapshot = finalizeDbSnapshot(buildDbSnapshot(db, fallback), fallback);
 
   if (!options.skipBackup) {
     backupCurrentDbFile();
@@ -116,14 +118,17 @@ function detectMountedDataDir() {
 
 function ensureDirectory(directoryPath) {
   if (!fs.existsSync(directoryPath)) {
-    fs.mkdirSync(directoryPath, { recursive: true });
+    fs.mkdirSync(directoryPath, {
+      recursive: true,
+      mode: 0o700,
+    });
   }
 }
 
-function updateDb(updater) {
+function updateDb(updater, options = {}) {
   const current = getDb();
   const next = updater(current) || current;
-  return writeDb(next, current);
+  return writeDb(next, current, options);
 }
 
 function readDbFile(filePath) {
@@ -188,11 +193,24 @@ function writeJsonFileAtomic(filePath, payload) {
     path.dirname(filePath),
     `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`
   );
+  const serializedPayload = JSON.stringify(payload, null, 2);
+  let fileDescriptor = null;
 
   try {
-    fs.writeFileSync(tempFilePath, JSON.stringify(payload, null, 2));
+    fileDescriptor = fs.openSync(tempFilePath, "w", 0o600);
+    fs.writeFileSync(fileDescriptor, serializedPayload, "utf8");
+    fs.fsyncSync(fileDescriptor);
+    fs.closeSync(fileDescriptor);
+    fileDescriptor = null;
     fs.renameSync(tempFilePath, filePath);
+    syncDirectory(path.dirname(filePath));
   } finally {
+    if (fileDescriptor !== null) {
+      try {
+        fs.closeSync(fileDescriptor);
+      } catch {}
+    }
+
     try {
       if (fs.existsSync(tempFilePath)) {
         fs.unlinkSync(tempFilePath);
@@ -221,6 +239,9 @@ function buildDbSnapshot(input = {}, fallback = DEFAULT_DB) {
     admin: primaryAdmin,
     admins,
     sellers: normalizeSellerList(source.sellers, base.sellers, primaryAdmin),
+    sessions: normalizeSessionList(source.sessions, {
+      pruneExpired: false,
+    }),
     tickets: normalizeTicketList(source.tickets, base.tickets),
     results: Array.isArray(source.results)
       ? source.results
@@ -228,6 +249,7 @@ function buildDbSnapshot(input = {}, fallback = DEFAULT_DB) {
         ? base.results
         : [],
     settings: mergeSettings(source.settings, base.settings, DEFAULT_DB.settings),
+    meta: normalizeDbMeta(source.meta, base.meta, DEFAULT_DB.meta),
   };
 }
 
@@ -263,6 +285,24 @@ function normalizeTicketList(list, fallback = []) {
   return source.map((ticket, index) => normalizeTicket(ticket, index));
 }
 
+function normalizeDbMeta(input, fallback, defaults) {
+  const defaultMeta = isPlainObject(defaults) ? defaults : {};
+  const fallbackMeta = isPlainObject(fallback) ? fallback : {};
+  const inputMeta = isPlainObject(input) ? input : {};
+
+  return {
+    ...defaultMeta,
+    ...fallbackMeta,
+    ...inputMeta,
+    schemaVersion:
+      Number(inputMeta.schemaVersion || fallbackMeta.schemaVersion || defaultMeta.schemaVersion) > 0
+        ? Number(inputMeta.schemaVersion || fallbackMeta.schemaVersion || defaultMeta.schemaVersion)
+        : DB_SCHEMA_VERSION,
+    createdAt: String(inputMeta.createdAt || fallbackMeta.createdAt || defaultMeta.createdAt || ""),
+    updatedAt: String(inputMeta.updatedAt || fallbackMeta.updatedAt || defaultMeta.updatedAt || ""),
+  };
+}
+
 function mergeCredentials(input, fallback, defaults) {
   return {
     ...(isPlainObject(defaults) ? defaults : {}),
@@ -293,6 +333,28 @@ function mergeSettings(input, fallback, defaults) {
   };
 }
 
+function finalizeDbSnapshot(snapshot = {}, fallback = DEFAULT_DB) {
+  const now = new Date().toISOString();
+  const normalizedSnapshot = buildDbSnapshot(snapshot, fallback);
+  const createdAt =
+    normalizedSnapshot.meta && normalizedSnapshot.meta.createdAt
+      ? normalizedSnapshot.meta.createdAt
+      : now;
+
+  return {
+    ...normalizedSnapshot,
+    meta: {
+      ...normalizedSnapshot.meta,
+      schemaVersion:
+        Number(normalizedSnapshot.meta && normalizedSnapshot.meta.schemaVersion) > 0
+          ? Number(normalizedSnapshot.meta.schemaVersion)
+          : DB_SCHEMA_VERSION,
+      createdAt,
+      updatedAt: now,
+    },
+  };
+}
+
 function migrateLegacyDbIfNeeded() {
   const seedSource = findBestSeedSource();
 
@@ -300,7 +362,7 @@ function migrateLegacyDbIfNeeded() {
     return "";
   }
 
-  const snapshot = buildDbSnapshot(readDbFile(seedSource), DEFAULT_DB);
+  const snapshot = finalizeDbSnapshot(readDbFile(seedSource), DEFAULT_DB);
   writeJsonFileAtomic(DB_FILE, snapshot);
   createSnapshotCopy(DB_FILE);
   return seedSource;
@@ -423,12 +485,43 @@ function getStorageInfo() {
     dbFile: DB_FILE,
     backupDbFile: BACKUP_DB_FILE,
     snapshotDir: SNAPSHOT_DIR,
+    writable: isDataDirectoryWritable(),
     usingBundledStorage: insideAppBundle,
     usingExternalStorage: !insideAppBundle,
     initializationMode: storeRuntime.initializationMode,
     migrationSource: storeRuntime.migrationSource,
     snapshotLimit: SNAPSHOT_LIMIT,
   };
+}
+
+function syncDirectory(directoryPath) {
+  let directoryHandle = null;
+
+  try {
+    directoryHandle = fs.openSync(directoryPath, "r");
+    fs.fsyncSync(directoryHandle);
+  } catch {} finally {
+    if (directoryHandle !== null) {
+      try {
+        fs.closeSync(directoryHandle);
+      } catch {}
+    }
+  }
+}
+
+function isDataDirectoryWritable() {
+  ensureDirectory(DATA_DIR);
+  const probeFile = path.join(DATA_DIR, `.write-check-${process.pid}-${Date.now()}`);
+
+  try {
+    fs.writeFileSync(probeFile, "ok", {
+      mode: 0o600,
+    });
+    fs.unlinkSync(probeFile);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 module.exports = {

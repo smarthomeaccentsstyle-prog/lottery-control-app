@@ -1,5 +1,4 @@
 const http = require("http");
-const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -29,7 +28,33 @@ const {
   buildRiskBoard,
   buildSellerReport,
 } = require("./lib/reports");
+const {
+  buildServerTimeSnapshot,
+  formatDrawLabel,
+  getCurrentBusinessDate,
+  getEntryCutoffValue,
+  getLatestAllowedTicketDate,
+  getNextValidTicketDate,
+  getResultAvailability,
+  getResultReleaseValue,
+  isDrawClosedForDate,
+  isTicketLocked,
+} = require("./lib/drawTiming");
 const { getMaintenanceState } = require("./lib/maintenance");
+const {
+  buildBackupExportPayload,
+  buildReadinessReport,
+  toPublicReadinessReport,
+} = require("./lib/runtime");
+const { hashPassword, isPasswordHash, verifyPassword } = require("./lib/passwords");
+const {
+  createSessionRecord,
+  findSessionByToken,
+  pruneExpiredSessions,
+  removeSessionByToken,
+  removeSessionsForAccount,
+  toSessionPayload,
+} = require("./lib/sessionStore");
 const {
   getDb,
   getStorageInfo,
@@ -39,49 +64,73 @@ const {
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || "0.0.0.0";
 const BUILD_DIR = path.join(__dirname, "..", "build");
-const STATIC_DIR = path.join(BUILD_DIR, "static");
-const activeSessions = new Map();
 const AUTH_REQUIRED_MESSAGE = "Session expired. Please login again.";
 const FORBIDDEN_MESSAGE = "You do not have permission for this action.";
-const DRAW_ENTRY_CUTOFFS = {
-  "11:00": "11:10",
-  "13:00": "12:58",
-  "15:00": "15:10",
-  "18:00": "17:58",
-  "19:00": "19:10",
-  "20:00": "19:58",
-};
-const PASSWORD_HASH_PREFIX = "scrypt$";
 const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_ATTEMPT_BLOCK_MS = 15 * 60 * 1000;
 const LOGIN_ATTEMPT_LIMIT = 7;
 const MAINTENANCE_STATUS_CODE = 503;
+const REQUEST_BODY_LIMIT_BYTES = resolveRequestBodyLimitBytes(
+  process.env.REQUEST_BODY_LIMIT_BYTES || process.env.BODY_SIZE_LIMIT_BYTES
+);
+const SESSION_TTL_HOURS = resolveSessionTtlHours(process.env.SESSION_TTL_HOURS);
+const SESSION_TTL_MS = SESSION_TTL_HOURS * 60 * 60 * 1000;
+const CORS_ALLOWED_ORIGINS = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
 const loginAttempts = new Map();
+let shuttingDown = false;
 
 const server = http.createServer(async (req, res) => {
-  setCorsHeaders(res);
+  setSecurityHeaders(req, res);
 
-  if (req.method === "OPTIONS") {
+  const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const pathname = requestUrl.pathname;
+  const allowedOrigin = setCorsHeaders(req, res);
+
+  if (pathname.startsWith("/api/") && isCorsPreflightRequest(req)) {
+    if (!allowedOrigin) {
+      return sendJson(res, 403, {
+        ok: false,
+        message: "Origin is not allowed.",
+      });
+    }
+
     res.writeHead(204);
     res.end();
     return;
   }
 
-  const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  const pathname = requestUrl.pathname;
-  const authSession = getAuthSession(req);
+  if (pathname.startsWith("/api/") && hasOriginHeader(req) && !allowedOrigin) {
+    return sendJson(res, 403, {
+      ok: false,
+      message: "Origin is not allowed.",
+    });
+  }
+
+  const authSession = pathname.startsWith("/api/") ? getAuthSession(req) : null;
   const maintenanceState = getMaintenanceState();
 
   try {
     if (req.method === "GET" && pathname === "/api/health") {
       const storage = getStorageInfo();
+      const db = getDb();
+      const readiness = buildReadinessReport({
+        db,
+        storage,
+        bodySizeLimitBytes: REQUEST_BODY_LIMIT_BYTES,
+        sessionTtlHours: SESSION_TTL_HOURS,
+        corsMode: CORS_ALLOWED_ORIGINS.length > 0 ? "custom" : "same-origin",
+        shuttingDown,
+      });
+
       return sendJson(res, 200, {
         ok: true,
         service: "lottery-control-backend",
         time: new Date().toISOString(),
         maintenance: maintenanceState,
+        readiness: toPublicReadinessReport(readiness),
         storage: {
           mode: storage.usingExternalStorage ? "external" : "bundled",
+          writable: storage.writable !== false,
           initializationMode: storage.initializationMode,
           migrationSource: storage.migrationSource ? path.basename(storage.migrationSource) : "",
         },
@@ -95,6 +144,13 @@ const server = http.createServer(async (req, res) => {
         sellers: db.sellers.map(toPublicSeller),
         settings: db.settings,
         maintenance: maintenanceState,
+      });
+    }
+
+    if (pathname.startsWith("/api/") && shuttingDown) {
+      return sendJson(res, 503, {
+        ok: false,
+        message: "Server is restarting. Please try again in a moment.",
       });
     }
 
@@ -129,7 +185,7 @@ const server = http.createServer(async (req, res) => {
           verifyPassword(password, db.master.password)
         ) {
           clearLoginAttempts(loginKey);
-          const session = createSession({
+          const session = createStoredSession({
             role: "master",
             username: db.master.username,
           });
@@ -146,7 +202,7 @@ const server = http.createServer(async (req, res) => {
 
         if (adminAccount && verifyPassword(password, adminAccount.password)) {
           clearLoginAttempts(loginKey);
-          const session = createSession({
+          const session = createStoredSession({
             role: "admin",
             adminId: adminAccount.id,
             username: adminAccount.username,
@@ -169,7 +225,7 @@ const server = http.createServer(async (req, res) => {
 
         if (seller) {
           clearLoginAttempts(loginKey);
-          const session = createSession({
+          const session = createStoredSession({
             role: "seller",
             username: seller.username,
             sellerId: seller.id,
@@ -198,14 +254,12 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         ok: true,
-        session: toSessionPayload(authSession),
+        session: toSessionPayload(authSession, authSession.token),
       });
     }
 
     if (req.method === "POST" && pathname === "/api/auth/logout") {
-      if (authSession && authSession.token) {
-        activeSessions.delete(authSession.token);
-      }
+      revokeStoredSession(authSession && authSession.token ? authSession.token : "");
 
       return sendJson(res, 200, {
         ok: true,
@@ -222,6 +276,7 @@ const server = http.createServer(async (req, res) => {
       validatePasswordChangePayload(payload);
 
       if (authSession.role === "seller") {
+        let refreshedSession = null;
         const db = updateDb((current) => {
           const sellerIndex = current.sellers.findIndex(
             (seller) =>
@@ -242,6 +297,22 @@ const server = http.createServer(async (req, res) => {
           current.sellers[sellerIndex] = updateSeller(currentSeller, {
             password: hashPassword(payload.newPassword),
           });
+          current.sessions = removeSessionsForAccount(current.sessions, {
+            role: "seller",
+            sellerId: currentSeller.id,
+            username: currentSeller.username,
+          });
+
+          const createdSession = createSessionRecord({
+            role: "seller",
+            username: currentSeller.username,
+            sellerId: currentSeller.id,
+            sellerName: currentSeller.name,
+          }, {
+            ttlMs: SESSION_TTL_MS,
+          });
+          refreshedSession = toSessionPayload(createdSession.session, createdSession.token);
+          current.sessions.push(createdSession.session);
           return current;
         });
 
@@ -250,10 +321,12 @@ const server = http.createServer(async (req, res) => {
           seller: toPublicSeller(
             db.sellers.find((seller) => String(seller.id) === String(authSession.sellerId))
           ),
+          session: refreshedSession,
           message: "Seller password updated",
         });
       }
 
+      let refreshedSession = null;
       const db = updateDb((current) => {
         const adminAccounts = getAdminAccounts(current);
         const adminIndex = adminAccounts.findIndex(
@@ -281,12 +354,28 @@ const server = http.createServer(async (req, res) => {
         );
 
         syncAdminAccounts(current, nextAdmins);
+        current.sessions = removeSessionsForAccount(current.sessions, {
+          role: "admin",
+          adminId: currentAdmin.id,
+          username: currentAdmin.username,
+        });
+
+        const createdSession = createSessionRecord({
+          role: "admin",
+          adminId: currentAdmin.id,
+          username: currentAdmin.username,
+        }, {
+          ttlMs: SESSION_TTL_MS,
+        });
+        refreshedSession = toSessionPayload(createdSession.session, createdSession.token);
+        current.sessions.push(createdSession.session);
         return current;
       });
 
       return sendJson(res, 200, {
         ok: true,
         admin: toPublicAdmin(findAdminAccountBySession(db, authSession)),
+        session: refreshedSession,
         message: "Admin password updated",
       });
     }
@@ -557,6 +646,17 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, {
           ok: false,
           message: "date, drawTime and 2 digit winningNumber are required",
+        });
+      }
+
+      const resultAvailability = getResultAvailability(result.date, result.drawTime);
+
+      if (!resultAvailability.allowed) {
+        return sendJson(res, 409, {
+          ok: false,
+          message:
+            resultAvailability.message ||
+            `Result for ${formatDrawLabel(result.drawTime)} opens after ${getResultReleaseValue(result.drawTime)} IST.`,
         });
       }
 
@@ -881,6 +981,50 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (pathname === "/api/master/system/storage" && req.method === "GET") {
+      if (!ensureRole(res, authSession, "master")) {
+        return;
+      }
+
+      const db = getDb();
+      const storage = getStorageInfo();
+
+      return sendJson(res, 200, {
+        ok: true,
+        storage: {
+          ...storage,
+          dbFile: path.basename(storage.dbFile),
+          backupDbFile: path.basename(storage.backupDbFile),
+          snapshotDir: path.basename(storage.snapshotDir),
+          migrationSource: storage.migrationSource
+            ? path.basename(storage.migrationSource)
+            : "",
+        },
+        readiness: buildReadinessReport({
+          db,
+          storage,
+          bodySizeLimitBytes: REQUEST_BODY_LIMIT_BYTES,
+          sessionTtlHours: SESSION_TTL_HOURS,
+          corsMode: CORS_ALLOWED_ORIGINS.length > 0 ? "custom" : "same-origin",
+          shuttingDown,
+        }),
+      });
+    }
+
+    if (pathname === "/api/master/system/export" && req.method === "GET") {
+      if (!ensureRole(res, authSession, "master")) {
+        return;
+      }
+
+      const backupFileName = `lottery-backup-${formatExportTimestamp(new Date())}.json`;
+      res.setHeader("Content-Disposition", `attachment; filename="${backupFileName}"`);
+
+      return sendJson(res, 200, buildBackupExportPayload({
+        db: getDb(),
+        storage: getStorageInfo(),
+      }));
+    }
+
     if ((req.method === "GET" || req.method === "HEAD") && shouldServeStatic(pathname)) {
       return serveStaticAsset(res, pathname, req.method);
     }
@@ -915,6 +1059,13 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (error instanceof PayloadTooLargeError) {
+      return sendJson(res, 413, {
+        ok: false,
+        message: error.message,
+      });
+    }
+
     if (
       error &&
       (
@@ -941,6 +1092,14 @@ migrateStoredCredentials();
 server.listen(PORT, HOST, () => {
   const db = getDb();
   const storage = getStorageInfo();
+  const readiness = buildReadinessReport({
+    db,
+    storage,
+    bodySizeLimitBytes: REQUEST_BODY_LIMIT_BYTES,
+    sessionTtlHours: SESSION_TTL_HOURS,
+    corsMode: CORS_ALLOWED_ORIGINS.length > 0 ? "custom" : "same-origin",
+    shuttingDown,
+  });
   console.log(`Lottery backend running on http://localhost:${PORT}`);
   getNetworkAddresses().forEach((address) => {
     console.log(`Lottery backend running on http://${address}:${PORT}`);
@@ -948,6 +1107,8 @@ server.listen(PORT, HOST, () => {
   console.log(`Data file: ${storage.dbFile}`);
   console.log(`Backup file: ${storage.backupDbFile}`);
   console.log(`Snapshot dir: ${storage.snapshotDir}`);
+  console.log(`Request body limit: ${REQUEST_BODY_LIMIT_BYTES} bytes`);
+  console.log(`Session TTL: ${SESSION_TTL_HOURS} hour(s)`);
   if (storage.migrationSource) {
     console.log(`Seeded persistent data from: ${storage.migrationSource}`);
   }
@@ -961,20 +1122,72 @@ server.listen(PORT, HOST, () => {
   if (getMaintenanceState().enabled) {
     console.warn("Maintenance mode is active. The app will show an updating screen until it is turned off.");
   }
+  readiness.warnings.forEach((warning) => {
+    console.warn(`WARNING: ${warning.message}`);
+  });
   console.log(`Loaded ${db.sellers.length} seller(s), ${db.tickets.length} ticket(s), ${db.results.length} result(s)`);
 });
 
-function setCorsHeaders(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+server.requestTimeout = 30 * 1000;
+server.headersTimeout = 35 * 1000;
+server.keepAliveTimeout = 30 * 1000;
+server.on("clientError", (error, socket) => {
+  try {
+    socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+  } catch {}
+
+  if (error) {
+    console.error("Client connection error:", error.message || error);
+  }
+});
+
+registerProcessHandlers();
+
+function setSecurityHeaders(req, res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+
+  if (isSecureRequest(req)) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+}
+
+function setCorsHeaders(req, res) {
+  const allowedOrigin = resolveAllowedCorsOrigin(req);
+
+  appendVaryHeader(res, "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.setHeader("Access-Control-Max-Age", "600");
+
+  if (allowedOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  }
+
+  return allowedOrigin;
 }
 
 function sendJson(res, statusCode, payload) {
+  const responsePayload =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? {
+          ...payload,
+          serverTime:
+            payload.serverTime && typeof payload.serverTime === "object"
+              ? payload.serverTime
+              : buildServerTimeSnapshot(),
+        }
+      : payload;
+
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
   });
-  res.end(JSON.stringify(payload, null, 2));
+  res.end(JSON.stringify(responsePayload, null, 2));
 }
 
 function sendMaintenanceResponse(res, maintenanceState) {
@@ -1018,43 +1231,124 @@ function extractId(pathname, prefix) {
   return pathname.slice(prefix.length).split("/")[0];
 }
 
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
-  return `${PASSWORD_HASH_PREFIX}${salt}$${hash}`;
+function parseAllowedOrigins(value) {
+  return String(value || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 }
 
-function isPasswordHash(value) {
-  return String(value || "").startsWith(PASSWORD_HASH_PREFIX);
+function resolveRequestBodyLimitBytes(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return 256 * 1024;
+  }
+
+  return Math.max(8 * 1024, Math.min(numericValue, 5 * 1024 * 1024));
 }
 
-function verifyPassword(password, storedPassword) {
-  const normalizedPassword = String(password || "");
-  const normalizedStoredPassword = String(storedPassword || "");
+function resolveSessionTtlHours(value) {
+  const numericValue = Number(value);
 
-  if (!normalizedStoredPassword) {
-    return false;
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return 24;
   }
 
-  if (!isPasswordHash(normalizedStoredPassword)) {
-    return normalizedPassword === normalizedStoredPassword;
+  return Math.max(1, Math.min(numericValue, 24 * 30));
+}
+
+function resolveAllowedCorsOrigin(req) {
+  const origin = String(req.headers.origin || "").trim();
+
+  if (!origin) {
+    return "";
   }
 
-  const [, salt, expectedHash] = normalizedStoredPassword.split("$");
-
-  if (!salt || !expectedHash) {
-    return false;
+  if (CORS_ALLOWED_ORIGINS.includes("*")) {
+    return "*";
   }
 
-  try {
-    const actualHash = crypto.scryptSync(normalizedPassword, salt, 64).toString("hex");
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedHash, "hex"),
-      Buffer.from(actualHash, "hex")
-    );
-  } catch {
-    return false;
+  if (CORS_ALLOWED_ORIGINS.includes(origin)) {
+    return origin;
   }
+
+  if (isLocalDevelopmentOrigin(origin)) {
+    return origin;
+  }
+
+  const requestOrigin = getRequestOrigin(req);
+
+  if (requestOrigin && origin === requestOrigin) {
+    return origin;
+  }
+
+  return "";
+}
+
+function isLocalDevelopmentOrigin(origin) {
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || ""));
+}
+
+function getRequestOrigin(req) {
+  const protocol = getRequestProtocol(req);
+  const hostHeader = String(req.headers["x-forwarded-host"] || req.headers.host || "").trim();
+
+  if (!hostHeader) {
+    return "";
+  }
+
+  return `${protocol}://${hostHeader}`;
+}
+
+function getRequestProtocol(req) {
+  const forwardedProtocol = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+
+  if (forwardedProtocol === "http" || forwardedProtocol === "https") {
+    return forwardedProtocol;
+  }
+
+  return isSecureRequest(req) ? "https" : "http";
+}
+
+function isSecureRequest(req) {
+  const forwardedProtocol = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+
+  return forwardedProtocol === "https" || Boolean(req.socket && req.socket.encrypted);
+}
+
+function hasOriginHeader(req) {
+  return Boolean(String(req.headers.origin || "").trim());
+}
+
+function isCorsPreflightRequest(req) {
+  return req.method === "OPTIONS";
+}
+
+function appendVaryHeader(res, headerName) {
+  const currentValue = String(res.getHeader("Vary") || "");
+  const values = currentValue
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (!values.includes(headerName)) {
+    values.push(headerName);
+  }
+
+  if (values.length > 0) {
+    res.setHeader("Vary", values.join(", "));
+  }
+}
+
+function formatExportTimestamp(dateValue) {
+  return new Date(dateValue || Date.now()).toISOString().replace(/[:.]/g, "-");
 }
 
 function migrateStoredCredentials() {
@@ -1105,26 +1399,38 @@ function migrateStoredCredentials() {
   }));
 }
 
-function createSession(payload) {
-  const session = {
-    ...payload,
-    token: crypto.randomBytes(24).toString("hex"),
-    createdAt: new Date().toISOString(),
-  };
+function createStoredSession(payload) {
+  let nextSessionPayload = null;
 
-  activeSessions.set(session.token, session);
-  return toSessionPayload(session);
+  updateDb((current) => {
+    current.sessions = pruneExpiredSessions(current.sessions, {
+      now: new Date(),
+    });
+
+    const createdSession = createSessionRecord(payload, {
+      ttlMs: SESSION_TTL_MS,
+    });
+    current.sessions.push(createdSession.session);
+    nextSessionPayload = toSessionPayload(createdSession.session, createdSession.token);
+    return current;
+  }, {
+    skipBackup: true,
+  });
+
+  return nextSessionPayload;
 }
 
-function toSessionPayload(session = {}) {
-  return {
-    role: session.role,
-    username: session.username,
-    adminId: session.adminId,
-    sellerId: session.sellerId,
-    sellerName: session.sellerName,
-    token: session.token,
-  };
+function revokeStoredSession(token) {
+  if (!String(token || "").trim()) {
+    return;
+  }
+
+  updateDb((current) => {
+    current.sessions = removeSessionByToken(current.sessions, token);
+    return current;
+  }, {
+    skipBackup: true,
+  });
 }
 
 function getAuthSession(req) {
@@ -1140,13 +1446,34 @@ function getAuthSession(req) {
     return null;
   }
 
-  const session = activeSessions.get(token);
+  const db = getDb();
+  const session = findSessionByToken(db.sessions, token, {
+    now: new Date(),
+  });
 
   if (!session) {
+    const expiredSessionCount = Array.isArray(db.sessions) ? db.sessions.length : 0;
+    const activeSessionCount = pruneExpiredSessions(db.sessions, {
+      now: new Date(),
+    }).length;
+
+    if (expiredSessionCount !== activeSessionCount) {
+      updateDb((current) => {
+        current.sessions = pruneExpiredSessions(current.sessions, {
+          now: new Date(),
+        });
+        return current;
+      }, {
+        skipBackup: true,
+      });
+    }
     return null;
   }
 
-  return session;
+  return {
+    ...session,
+    token,
+  };
 }
 
 function ensureAuthenticated(res, session) {
@@ -1415,16 +1742,46 @@ function toPublicSeller(seller = {}) {
 class ForbiddenError extends Error {}
 class ValidationError extends Error {}
 class ConflictError extends Error {}
+class PayloadTooLargeError extends Error {}
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
+    let size = 0;
+    let settled = false;
 
     req.on("data", (chunk) => {
-      raw += chunk;
+      if (settled) {
+        return;
+      }
+
+      const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk || ""));
+      size += bufferChunk.length;
+
+      if (size > REQUEST_BODY_LIMIT_BYTES) {
+        settled = true;
+        reject(
+          new PayloadTooLargeError(
+            `Request body is too large. Limit is ${REQUEST_BODY_LIMIT_BYTES} bytes.`
+          )
+        );
+
+        try {
+          req.destroy();
+        } catch {}
+        return;
+      }
+
+      raw += bufferChunk.toString("utf8");
     });
 
     req.on("end", () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+
       if (!raw) {
         resolve({});
         return;
@@ -1437,7 +1794,14 @@ function readJsonBody(req) {
       }
     });
 
-    req.on("error", reject);
+    req.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(error);
+    });
   });
 }
 
@@ -1501,15 +1865,6 @@ function isClaimOnlyTicketPatch(input = {}) {
   return keys.every((key) => ["claimed", "payout", "winningNumber"].includes(key));
 }
 
-function isTicketLocked(ticket) {
-  if (!ticket || !ticket.date || !ticket.drawTime) {
-    return false;
-  }
-
-  const drawMoment = new Date(`${ticket.date}T${getEntryCutoffValue(ticket.drawTime)}:00`);
-  return new Date() > drawMoment;
-}
-
 function normalizeDrawTime(value) {
   const nextValue = String(value || "").trim();
   return nextValue || "11:00";
@@ -1517,60 +1872,7 @@ function normalizeDrawTime(value) {
 
 function normalizeTicketDate(value) {
   const nextValue = String(value || "").trim();
-  return nextValue || formatDate(new Date());
-}
-
-function getLatestAllowedTicketDate() {
-  const today = parseDateString(formatDate(new Date()));
-  return formatDate(addDays(today, 1));
-}
-
-function getNextValidTicketDate(dateString, drawTime) {
-  const today = parseDateString(formatDate(new Date()));
-  const tomorrow = parseDateString(getLatestAllowedTicketDate());
-  let candidate = parseDateString(dateString) || today;
-
-  if (candidate < today) {
-    candidate = new Date(today);
-  }
-
-  if (candidate > tomorrow) {
-    candidate = new Date(tomorrow);
-  }
-
-  if (isDrawClosedForDate(candidate, drawTime)) {
-    candidate = new Date(tomorrow);
-  }
-
-  return formatDate(candidate);
-}
-
-function isDrawClosedForDate(dateValue, drawTime) {
-  const drawMoment = new Date(`${formatDate(dateValue)}T${getEntryCutoffValue(drawTime)}:00`);
-  return drawMoment <= new Date();
-}
-
-function getEntryCutoffValue(drawTime) {
-  return DRAW_ENTRY_CUTOFFS[String(drawTime || "").trim()] || String(drawTime || "").trim() || "11:00";
-}
-
-function parseDateString(dateString) {
-  const parsed = new Date(`${dateString}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function addDays(dateValue, days) {
-  const next = new Date(dateValue);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function formatDate(dateValue) {
-  return [
-    dateValue.getFullYear(),
-    String(dateValue.getMonth() + 1).padStart(2, "0"),
-    String(dateValue.getDate()).padStart(2, "0"),
-  ].join("-");
+  return nextValue || getCurrentBusinessDate();
 }
 
 function sanitizeSellerPayload(input = {}, options = {}) {
@@ -1754,6 +2056,49 @@ function getNetworkAddresses() {
   return [...addresses];
 }
 
+function registerProcessHandlers() {
+  process.once("SIGTERM", () => {
+    startGracefulShutdown("SIGTERM");
+  });
+
+  process.once("SIGINT", () => {
+    startGracefulShutdown("SIGINT");
+  });
+
+  process.once("uncaughtException", (error) => {
+    console.error("Uncaught exception:", error);
+    startGracefulShutdown("uncaughtException");
+  });
+
+  process.on("unhandledRejection", (error) => {
+    console.error("Unhandled rejection:", error);
+  });
+}
+
+function startGracefulShutdown(signalName) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  console.log(`Graceful shutdown started from ${signalName}.`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error("Graceful shutdown timed out. Exiting forcefully.");
+    process.exit(1);
+  }, 10 * 1000);
+
+  if (typeof forceExitTimer.unref === "function") {
+    forceExitTimer.unref();
+  }
+
+  server.close(() => {
+    clearTimeout(forceExitTimer);
+    console.log("HTTP server stopped cleanly.");
+    process.exit(0);
+  });
+}
+
 function hasBuildIndex() {
   return fs.existsSync(path.join(BUILD_DIR, "index.html"));
 }
@@ -1772,9 +2117,11 @@ function serveStaticAsset(res, pathname, method = "GET") {
 
   const normalizedPath = pathname === "/" ? "/index.html" : pathname;
   const safeRelativePath = normalizedPath.replace(/^\/+/, "");
-  const filePath = path.join(BUILD_DIR, safeRelativePath);
+  const filePath = path.resolve(BUILD_DIR, safeRelativePath);
+  const insideBuildDirectory =
+    filePath === BUILD_DIR || filePath.startsWith(`${BUILD_DIR}${path.sep}`);
 
-  if (!filePath.startsWith(BUILD_DIR)) {
+  if (!insideBuildDirectory) {
     return sendJson(res, 400, {
       ok: false,
       message: "Invalid file path",
@@ -1795,6 +2142,8 @@ function serveStaticAsset(res, pathname, method = "GET") {
   const contentType = getContentType(filePath);
   res.writeHead(200, {
     "Content-Type": contentType,
+    "Cache-Control":
+      pathname.startsWith("/static/") ? "public, max-age=31536000, immutable" : "public, max-age=3600",
   });
 
   if (method === "HEAD") {
@@ -1817,6 +2166,7 @@ function serveIndexHtml(res, method = "GET") {
 
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
   });
 
   if (method === "HEAD") {
