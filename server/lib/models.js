@@ -5,6 +5,8 @@ const DEFAULT_COMMISSION = {
   juri: 2.65,
 };
 
+const DB_SCHEMA_VERSION = 2;
+
 const DEFAULT_ADMIN = {
   id: 1,
   username: "admin",
@@ -37,6 +39,7 @@ const DEFAULT_DB = {
   admin: DEFAULT_ADMIN,
   admins: DEFAULT_ADMINS,
   sellers: DEFAULT_SELLERS,
+  sessions: [],
   tickets: [],
   results: [],
   settings: {
@@ -47,6 +50,11 @@ const DEFAULT_DB = {
       juriSell: 10,
       juriPayout: 600,
     },
+  },
+  meta: {
+    schemaVersion: DB_SCHEMA_VERSION,
+    createdAt: "",
+    updatedAt: "",
   },
 };
 
@@ -174,6 +182,7 @@ function formatDate(dateValue) {
 }
 
 module.exports = {
+  DB_SCHEMA_VERSION,
   DEFAULT_DB,
   createAdmin,
   createSeller,

@@ -17,23 +17,26 @@ import {
 } from "../untils/api.js";
 import {
   DEFAULT_SELLERS,
+  PANEL_SESSION_KEY,
   SELLER_LIST_KEY,
   getStoredSellers,
 } from "../untils/adminStorage.js";
+import {
+  DRAW_OPTIONS as drawOptions,
+  formatDrawTime,
+  formatTimeValue,
+  getCurrentBusinessDate as getTodayString,
+  getDefaultAdminDrawTime,
+  getEntryCutoffValue,
+  getResultAvailability,
+  getResultReleaseValue,
+  isLockedTicket as isLocked,
+} from "../untils/drawTiming.js";
 
 const SINGLE_RATE = 11;
 const SINGLE_PAYOUT = 100;
 const JURI_RATE = 10;
 const JURI_PAYOUT = 600;
-
-const drawOptions = [
-  { value: "11:00", label: "11:00 AM", cutoff: "11:10" },
-  { value: "13:00", label: "1:00 PM", cutoff: "12:58" },
-  { value: "15:00", label: "3:00 PM", cutoff: "15:10" },
-  { value: "18:00", label: "6:00 PM", cutoff: "17:58" },
-  { value: "19:00", label: "7:00 PM", cutoff: "19:10" },
-  { value: "20:00", label: "8:00 PM", cutoff: "19:58" },
-];
 
 const adminSections = [
   { value: "Risk Board", label: "Risk Board", shortLabel: "Risk" },
@@ -338,6 +341,10 @@ export default function AdminPanel({ session, onLogout }) {
   const drawStatus = estimatedProfitLoss >= 0 ? "SAFE" : "LOSS";
   const selectedDrawResult =
     sellerState.winResults[buildResultKey(selectedDate, selectedDrawTime)] || "";
+  const resultAvailability = useMemo(
+    () => getResultAvailability(selectedDate, selectedDrawTime),
+    [selectedDate, selectedDrawTime]
+  );
 
   useEffect(() => {
     const localOverviewSignature = buildStateSignature(localDashboardSummary);
@@ -586,6 +593,11 @@ export default function AdminPanel({ session, onLogout }) {
       return;
     }
 
+    if (!resultAvailability.canSave) {
+      window.alert(resultAvailability.message);
+      return;
+    }
+
     try {
       await saveResultApi({
         date: selectedDate,
@@ -721,10 +733,15 @@ export default function AdminPanel({ session, onLogout }) {
 
     try {
       setAdminPasswordLoading(true);
-      await changePasswordApi({
+      const response = await changePasswordApi({
         currentPassword,
         newPassword,
       });
+
+      if (response && response.session) {
+        save(PANEL_SESSION_KEY, response.session);
+      }
+
       setAdminPasswordForm(emptyAdminPasswordForm);
       window.alert("Admin password updated");
     } catch (error) {
@@ -859,7 +876,7 @@ export default function AdminPanel({ session, onLogout }) {
                   {selectedDate} | {formatDrawTime(selectedDrawTime)}
                 </strong>
                 <span>
-                  Result {selectedDrawResult || "--"} | Status {drawStatus} | Cutoff {formatTimeValue(getEntryCutoffValue(selectedDrawTime))} | {selectedDrawTickets.length} ticket(s)
+                  Result {selectedDrawResult || "--"} | Status {drawStatus} | Cutoff {formatTimeValue(getEntryCutoffValue(selectedDrawTime))} | Result Open {formatTimeValue(getResultReleaseValue(selectedDrawTime))} IST | {selectedDrawTickets.length} ticket(s)
                 </span>
               </div>
 
@@ -922,12 +939,25 @@ export default function AdminPanel({ session, onLogout }) {
                     inputMode="numeric"
                     placeholder="2 digit result"
                   />
-                  <button type="button" onClick={handleSaveResult}>
+                  <button
+                    type="button"
+                    onClick={handleSaveResult}
+                    disabled={!resultAvailability.canSave}
+                    title={resultAvailability.canSave ? "Save result" : resultAvailability.message}
+                  >
                     Save Result
                   </button>
                 </div>
 
                 <div className="report-list">
+                  <div className="report-row">
+                    <span>Result Window</span>
+                    <strong>
+                      {resultAvailability.canSave
+                        ? "OPEN"
+                        : `After ${formatTimeValue(resultAvailability.opensAt)} IST`}
+                    </strong>
+                  </div>
                   <div className="report-row">
                     <span>Stored Result</span>
                     <strong>{selectedDrawResult || "--"}</strong>
@@ -941,6 +971,9 @@ export default function AdminPanel({ session, onLogout }) {
                     <strong>{formatCurrency(selectedDrawWinningPayout)}</strong>
                   </div>
                 </div>
+                {!resultAvailability.canSave ? (
+                  <p className="form-caption">{resultAvailability.message}</p>
+                ) : null}
               </div>
 
               <RiskSection
@@ -2085,57 +2118,8 @@ function getRiskTone(riskValue, collectionValue) {
   return "safe";
 }
 
-function isLocked(ticket) {
-  if (!ticket || !ticket.date || !ticket.drawTime) {
-    return false;
-  }
-
-  const cutoffValue = getEntryCutoffValue(ticket.drawTime);
-  const draw = new Date(`${ticket.date}T${cutoffValue}:00`);
-  return new Date() > draw;
-}
-
 function buildResultKey(date, drawTime) {
   return `${date}|${drawTime}`;
-}
-
-function getTodayString() {
-  return formatDate(new Date());
-}
-
-function getDefaultAdminDrawTime(referenceDate = new Date()) {
-  const today = formatDate(referenceDate);
-  const nextOpenDraw = drawOptions.find(
-    (option) => new Date(`${today}T${getEntryCutoffValue(option.value)}:00`) >= referenceDate
-  );
-
-  return nextOpenDraw ? nextOpenDraw.value : drawOptions[drawOptions.length - 1].value;
-}
-
-function formatDate(dateValue) {
-  const year = dateValue.getFullYear();
-  const month = leftPad(String(dateValue.getMonth() + 1), 2, "0");
-  const day = leftPad(String(dateValue.getDate()), 2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatDrawTime(value) {
-  const match = drawOptions.find((option) => option.value === value);
-  return match ? match.label : value;
-}
-
-function getEntryCutoffValue(drawTime) {
-  const match = drawOptions.find((option) => option.value === drawTime);
-  return match && match.cutoff ? match.cutoff : drawTime;
-}
-
-function formatTimeValue(value) {
-  const [hourText = "0", minuteText = "00"] = String(value || "").split(":");
-  const hour = Number(hourText) || 0;
-  const minute = leftPad(String(Number(minuteText) || 0), 2, "0");
-  const suffix = hour >= 12 ? "PM" : "AM";
-  const normalizedHour = hour % 12 || 12;
-  return `${normalizedHour}:${minute} ${suffix}`;
 }
 
 function leftPad(value, targetLength, fillCharacter) {

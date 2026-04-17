@@ -69,6 +69,27 @@ Production-safe storage:
 - mount that path to a persistent volume
 - on first boot, if the persistent file is empty, the app will try to copy the old bundled data into it
 - every write keeps `db.backup.json` plus rotating snapshots in `snapshots/`
+- live sessions are stored in the database too, so restarts do not wipe current logins
+- `GET /api/health` now shows public-safe readiness warnings, while the master system route shows the detailed security findings
+- `GET /api/master/system/export` returns a migration-safe backup payload for future database moves
+
+Recommended production env:
+
+```bash
+HOST=0.0.0.0
+PORT=4000
+DATA_DIR=/data
+SESSION_TTL_HOURS=24
+REQUEST_BODY_LIMIT_BYTES=262144
+# If frontend is on another domain:
+# CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+```
+
+Operator backup command:
+
+```bash
+npm run backup:export
+```
 
 Current sections:
 - `admin`

@@ -41,6 +41,16 @@ import {
   normalizeSingleDraft,
   parseFastJuriText,
 } from "./untils/fastEntry.js";
+import {
+  DRAW_OPTIONS as drawOptions,
+  formatDrawTime,
+  formatEntryCutoffTime,
+  getCurrentBusinessDate as getTodayString,
+  getLatestAllowedBookingDate,
+  getNextAvailableDrawSelection,
+  getNextValidBookingDate,
+  isLockedTicket as isLocked,
+} from "./untils/drawTiming.js";
 
 const SINGLE_RATE = 11;
 const SINGLE_PAYOUT = 100;
@@ -56,15 +66,6 @@ const tabs = [
   "Reports",
   "Due",
   "Account",
-];
-
-const drawOptions = [
-  { value: "11:00", label: "11:00 AM", cutoff: "11:10" },
-  { value: "13:00", label: "1:00 PM", cutoff: "12:58" },
-  { value: "15:00", label: "3:00 PM", cutoff: "15:10" },
-  { value: "18:00", label: "6:00 PM", cutoff: "17:58" },
-  { value: "19:00", label: "7:00 PM", cutoff: "19:10" },
-  { value: "20:00", label: "8:00 PM", cutoff: "19:58" },
 ];
 
 const reportRanges = ["Daily", "Weekly", "Monthly", "Yearly"];
@@ -1152,10 +1153,15 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
 
     try {
       setPasswordLoading(true);
-      await changePasswordApi({
+      const response = await changePasswordApi({
         currentPassword,
         newPassword,
       });
+
+      if (response && response.session) {
+        save(PANEL_SESSION_KEY, response.session);
+      }
+
       setPasswordForm(emptyPasswordChangeForm());
       window.alert("Seller password updated");
     } catch (error) {
@@ -2566,81 +2572,6 @@ function getWeekStart(value) {
   return next;
 }
 
-function getNextAvailableDrawSelection(baseDate = getTodayString()) {
-  let candidate = parseDateString(baseDate) || parseDateString(getTodayString());
-
-  while (candidate) {
-    const nextOpenDraw = drawOptions.find(
-      (option) => !isDrawClosedForDate(candidate, option.value)
-    );
-
-    if (nextOpenDraw) {
-      return {
-        date: formatDate(candidate),
-        drawTime: nextOpenDraw.value,
-      };
-    }
-
-    candidate = addDays(candidate, 1);
-  }
-
-  return {
-    date: getTodayString(),
-    drawTime: drawOptions[0].value,
-  };
-}
-
-function getLatestAllowedBookingDate() {
-  const today = parseDateString(getTodayString()) || new Date();
-  return formatDate(addDays(today, 1));
-}
-
-function getNextValidBookingDate(dateString, drawTime) {
-  const today = parseDateString(getTodayString());
-  const tomorrow = parseDateString(getLatestAllowedBookingDate());
-  let candidate = parseDateString(dateString) || today;
-
-  if (candidate < today) {
-    candidate = new Date(today);
-  }
-
-  if (candidate > tomorrow) {
-    candidate = new Date(tomorrow);
-  }
-
-  if (isDrawClosedForDate(candidate, drawTime)) {
-    candidate = new Date(tomorrow);
-  }
-
-  return formatDate(candidate);
-}
-
-function isDrawClosedForDate(dateValue, drawTime) {
-  return getEntryCutoffMoment(dateValue, drawTime) <= new Date();
-}
-
-function getEntryCutoffMoment(dateValue, drawTime) {
-  return new Date(`${formatDate(dateValue)}T${getEntryCutoffValue(drawTime)}:00`);
-}
-
-function getEntryCutoffValue(drawTime) {
-  const match = drawOptions.find((option) => option.value === drawTime);
-  return match && match.cutoff ? match.cutoff : drawTime;
-}
-
-function addDays(dateValue, days) {
-  const next = new Date(dateValue);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function formatDate(dateValue) {
-  const year = dateValue.getFullYear();
-  const month = leftPad(String(dateValue.getMonth() + 1), 2, "0");
-  const day = leftPad(String(dateValue.getDate()), 2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function formatDateTime(value) {
   if (!value) {
     return "--";
@@ -2675,24 +2606,6 @@ function buildResultKey(date, drawTime) {
   return `${date}|${drawTime}`;
 }
 
-function getTodayString() {
-  return formatDate(new Date());
-}
-
-function isLocked(ticket) {
-  if (!ticket || !ticket.date || !ticket.drawTime) {
-    return false;
-  }
-
-  const ticketDate = parseDateString(ticket.date);
-
-  if (!ticketDate) {
-    return false;
-  }
-
-  return new Date() > getEntryCutoffMoment(ticketDate, ticket.drawTime);
-}
-
 function formatCurrency(value) {
   const formatter = getIntlNumberFormat("en-IN", {
     style: "currency",
@@ -2701,15 +2614,6 @@ function formatCurrency(value) {
   });
 
   return formatter ? formatter.format(value || 0) : `Rs ${Number(value || 0).toFixed(2)}`;
-}
-
-function formatDrawTime(value) {
-  const match = drawOptions.find((option) => option.value === value);
-  return match ? match.label : value;
-}
-
-function formatEntryCutoffTime(value) {
-  return formatTimeValue(getEntryCutoffValue(value));
 }
 
 function formatTimeValue(value) {

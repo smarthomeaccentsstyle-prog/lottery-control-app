@@ -38,6 +38,14 @@ npm run start:prod
 HOST=0.0.0.0
 PORT=4000
 DATA_DIR=/data
+SESSION_TTL_HOURS=24
+REQUEST_BODY_LIMIT_BYTES=262144
+```
+
+Recommended in real production:
+
+```bash
+CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
 ## Railway Example
@@ -57,6 +65,10 @@ DATA_DIR=/data
 HOST=0.0.0.0
 PORT=4000
 DATA_DIR=/data
+SESSION_TTL_HOURS=24
+REQUEST_BODY_LIMIT_BYTES=262144
+# If frontend is on another domain:
+# CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
 6. Build command:
@@ -77,10 +89,18 @@ npm run start:prod
 - same server also serves the React build from `/build`
 - all mobiles open the same public URL
 - all data writes to `DATA_DIR/db.json`
+- login sessions are stored inside the database file, so restart or redeploy does not immediately log everyone out
 - if `DATA_DIR/db.json` is empty on first boot, the app now tries to migrate old data from the bundled `server/data/db.json`
 - every write also keeps:
   - `db.backup.json`
   - rotating timestamp snapshots in `DATA_DIR/snapshots/`
+- the health endpoint now reports public-safe readiness warnings, and the master system route shows detailed security warnings
+- master can export a migration-safe backup from `GET /api/master/system/export`
+- operators can also write a full backup file with:
+
+```bash
+npm run backup:export
+```
 
 ## Important
 
@@ -93,3 +113,24 @@ So for real public use, persistent volume is required until you move to:
 - PostgreSQL
 - MongoDB
 - Firebase
+
+## Upgrade Path For A Bigger App
+
+Today this project is safest as:
+- one Node service
+- one persistent storage volume
+- one always-on process
+
+That setup can handle normal real users well, but true multi-instance scaling should not stay on a shared JSON file forever.
+
+Before you move to a bigger stack:
+- keep `DATA_DIR` on persistent storage
+- change all default master, admin, and seller passwords
+- set `CORS_ALLOWED_ORIGINS` to your real production domains
+- run `npm run backup:export` and keep the exported file before major deploys
+- use the backup export as the source file when migrating into PostgreSQL or another managed database
+
+If you later move to PostgreSQL:
+- keep the same data shape first
+- import sellers, admins, tickets, results, settings, and meta from the export file
+- cut over only after the new database has the same counts and a full restore backup
