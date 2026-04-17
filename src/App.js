@@ -7,13 +7,18 @@ import {
   BACKEND_TIMEOUT_MESSAGE,
   BACKEND_UNAVAILABLE_MESSAGE,
   changePasswordApi,
+  DEFAULT_MAINTENANCE_COMPLETION_MESSAGE,
+  DEFAULT_MAINTENANCE_MESSAGE,
+  DEFAULT_MAINTENANCE_TITLE,
   fetchBootstrap,
   fetchResultsApi,
   fetchReportSummaryApi,
   fetchSellersApi,
   fetchTicketsApi,
+  getMaintenanceStateFromPayload,
   loginApi,
   logoutApi,
+  MAINTENANCE_EVENT,
   mapResultsToLookup,
   verifySessionApi,
   createTicketApi,
@@ -139,6 +144,10 @@ function buildEntryDraftSnapshot({ third, fourth, juriText, commissionSettings }
   };
 }
 
+function generateClientTicketId() {
+  return Date.now();
+}
+
 function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const defaultBookingSelection = useMemo(() => getNextAvailableDrawSelection(), []);
   const persisted = useMemo(
@@ -156,6 +165,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         drawTime: defaultBookingSelection.drawTime,
         paymentMode: "Paid",
         paidAmount: "",
+        draftTicketId: generateClientTicketId(),
       }),
     [defaultBookingSelection.date, defaultBookingSelection.drawTime]
   );
@@ -180,6 +190,9 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
   const [editingTicketId, setEditingTicketId] = useState(null);
   const [paymentMode, setPaymentMode] = useState(persisted.paymentMode || "Paid");
   const [paidAmount, setPaidAmount] = useState(persisted.paidAmount || "");
+  const [draftTicketId, setDraftTicketId] = useState(() =>
+    persisted.draftTicketId || generateClientTicketId()
+  );
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketFilter, setTicketFilter] = useState("ALL");
   const [dueSearch, setDueSearch] = useState("");
@@ -222,12 +235,14 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       drawTime,
       paymentMode,
       paidAmount,
+      draftTicketId,
     });
   }, [
     activeEntryMode,
     customerName,
     customerPhone,
     date,
+    draftTicketId,
     drawTime,
     fourth,
     juriText,
@@ -456,6 +471,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     drawTime,
     tickets,
     sessionUsername: session && session.username ? session.username : "",
+    draftTicketId,
   };
 
   const dashboardSummary = useMemo(() => {
@@ -807,6 +823,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setEditingTicketId(null);
     setPaymentMode("Paid");
     setPaidAmount("");
+    setDraftTicketId(generateClientTicketId());
     setTicketActionNotice(null);
     setLastSavedTicketId(null);
     setEntryUiToken((current) => current + 1);
@@ -832,7 +849,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     const editingId = latest.editingTicketId;
     const wasEditing = Boolean(editingId);
     const currentTimestamp = new Date().toISOString();
-    const nextTicketId = editingId || Date.now();
+    const nextTicketId = editingId || latest.draftTicketId || generateClientTicketId();
     const paidAmountForTicket = calculateEffectivePaidAmount(
       summaryToSave.total,
       latest.paymentMode,
@@ -1055,6 +1072,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
 
     const formState = ticketToFormState(ticket);
     setLastSavedTicketId(null);
+    setDraftTicketId(ticket.id);
     setThird(formState.third);
     setFourth(formState.fourth);
     setJuriText(formState.juriText);
@@ -1167,7 +1185,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     openTicketPrintWindow(
       buildTicketPrintMarkup(
         {
-          id: "Draft",
+          id: draftTicketId,
           customerName: customerName.trim() || "Walk-in Customer",
           customerPhone: customerPhone.trim(),
           date: effectiveTicketDate,
@@ -1179,9 +1197,9 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         },
         draftTicketLayout,
         {
-          documentTitle: "Draft Ticket",
+          documentTitle: `Ticket #${draftTicketId} Preview`,
           sheetTitle: "Ticket Preview",
-          ticketLabel: "Draft Ticket",
+          ticketLabel: `Ticket #${draftTicketId}`,
         }
       )
     );
@@ -1469,6 +1487,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                 juriText={juriText}
                 lastSavedTicket={lastSavedTicket}
                 lastSavedTicketId={lastSavedTicketId}
+                draftTicketId={draftTicketId}
                 maxBookingDate={getLatestAllowedBookingDate()}
                 onActiveEntryModeChange={setActiveEntryMode}
                 onCustomerNameChange={setCustomerName}
@@ -2770,6 +2789,21 @@ function isBackendOfflineError(message) {
   );
 }
 
+function buildDefaultMaintenanceState(maintenance = {}) {
+  return {
+    enabled: true,
+    title: maintenance.title || DEFAULT_MAINTENANCE_TITLE,
+    message: maintenance.message || DEFAULT_MAINTENANCE_MESSAGE,
+    completionMessage:
+      maintenance.completionMessage || DEFAULT_MAINTENANCE_COMPLETION_MESSAGE,
+    actionLabel: maintenance.actionLabel || "Refresh",
+    retryAfterSeconds:
+      Number(maintenance.retryAfterSeconds) > 0 ? Number(maintenance.retryAfterSeconds) : 30,
+    updatedAt: maintenance.updatedAt || "",
+    source: maintenance.source || "",
+  };
+}
+
 export default function App() {
   const accessMode = getAccessMode();
   const [session, setSession] = useState(() => load(PANEL_SESSION_KEY, null));
@@ -2778,19 +2812,40 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [backendStatus, setBackendStatus] = useState("");
   const [backendState, setBackendState] = useState("checking");
+  const [maintenanceState, setMaintenanceState] = useState(null);
   const [sessionRestorePending, setSessionRestorePending] = useState(() =>
     Boolean(load(PANEL_SESSION_KEY, null))
   );
   const [sellerSyncToken, setSellerSyncToken] = useState(0);
-  const hasSession = Boolean(session);
+  const sessionRole = session && session.role ? session.role : "";
   const sessionToken = session && session.token ? session.token : "";
 
+  const applyMaintenanceMode = useCallback((maintenance) => {
+    const nextMaintenance = buildDefaultMaintenanceState(maintenance);
+    setMaintenanceState(nextMaintenance);
+    setBackendState("maintenance");
+    setBackendStatus(nextMaintenance.message);
+    setSessionRestorePending(false);
+  }, []);
+
   const applyBootstrapData = useCallback((response) => {
-    save(SELLER_LIST_KEY, response.sellers || []);
+    const nextMaintenance = getMaintenanceStateFromPayload(response);
+
+    if (nextMaintenance && nextMaintenance.enabled) {
+      applyMaintenanceMode(nextMaintenance);
+      return false;
+    }
+
+    if (accessMode === "seller") {
+      save(SELLER_LIST_KEY, response.sellers || []);
+    }
+
+    setMaintenanceState(null);
     setSellerSyncToken((current) => current + 1);
     setBackendState("ready");
     setBackendStatus("");
-  }, []);
+    return true;
+  }, [accessMode, applyMaintenanceMode]);
 
   const clearSavedSession = useCallback(() => {
     try {
@@ -2803,6 +2858,7 @@ export default function App() {
 
   const markBackendOffline = useCallback(
     (clearSessionOnFail = false) => {
+      setMaintenanceState(null);
       setBackendState("offline");
       setBackendStatus("Backend is offline. Start the server, then tap retry.");
 
@@ -2813,12 +2869,59 @@ export default function App() {
     [clearSavedSession]
   );
 
+  const syncSessionAfterBootstrap = useCallback(async ({ ensureActive = () => true } = {}) => {
+    const hasCurrentSession = Boolean(sessionRole === accessMode);
+
+    if (!hasCurrentSession) {
+      if (ensureActive()) {
+        setSessionRestorePending(false);
+      }
+      return true;
+    }
+
+    if (!sessionToken) {
+      if (!ensureActive()) {
+        return false;
+      }
+
+      setSessionRestorePending(false);
+      clearSavedSession();
+      setBackendStatus("Session expired. Please login again.");
+      return false;
+    }
+
+    const verifyResponse = await verifySessionApi();
+
+    if (!ensureActive()) {
+      return false;
+    }
+
+    save(PANEL_SESSION_KEY, verifyResponse.session);
+
+    if (
+      verifyResponse.session &&
+      (verifyResponse.session.role === "admin" || verifyResponse.session.role === "master")
+    ) {
+      const sellerResponse = await fetchSellersApi();
+
+      if (!ensureActive()) {
+        return false;
+      }
+
+      save(SELLER_LIST_KEY, sellerResponse.sellers || []);
+    }
+
+    setSession(verifyResponse.session);
+    setSessionRestorePending(false);
+    return true;
+  }, [accessMode, clearSavedSession, sessionRole, sessionToken]);
+
   useEffect(() => {
     let active = true;
 
     const loadBootstrapData = async () => {
       const shouldRestoreExistingSession = Boolean(
-        session && session.role === accessMode && session.token
+        sessionRole === accessMode && sessionToken
       );
 
       try {
@@ -2830,34 +2933,24 @@ export default function App() {
           return;
         }
 
-        applyBootstrapData(response);
-
-        if (hasSession) {
-          if (!sessionToken) {
-            setSessionRestorePending(false);
-            clearSavedSession();
-            setBackendStatus("Session expired. Please login again.");
-            return;
-          }
-
-          const verifyResponse = await verifySessionApi();
-
-          if (!active) {
-            return;
-          }
-
-          save(PANEL_SESSION_KEY, verifyResponse.session);
-          setSession(verifyResponse.session);
-          setSessionRestorePending(false);
-        } else {
-          setSessionRestorePending(false);
+        if (!applyBootstrapData(response)) {
+          return;
         }
+
+        await syncSessionAfterBootstrap({
+          ensureActive: () => active,
+        });
       } catch (error) {
         if (!active) {
           return;
         }
 
         setSessionRestorePending(false);
+
+        if (error && error.maintenance) {
+          applyMaintenanceMode(error.maintenanceState);
+          return;
+        }
 
         if (isBackendOfflineError(error && error.message)) {
           markBackendOffline(true);
@@ -2877,13 +2970,23 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [applyBootstrapData, clearSavedSession, hasSession, markBackendOffline, sessionToken]);
+  }, [
+    accessMode,
+    applyBootstrapData,
+    applyMaintenanceMode,
+    clearSavedSession,
+    markBackendOffline,
+    sessionRole,
+    sessionToken,
+    syncSessionAfterBootstrap,
+  ]);
 
   useEffect(() => {
     const handleAuthExpired = (event) => {
       clearSavedSession();
       setPassword("");
       setSessionRestorePending(false);
+      setMaintenanceState(null);
       setBackendState("ready");
       setBackendStatus(
         event && event.detail && event.detail.message
@@ -2899,13 +3002,34 @@ export default function App() {
     };
   }, [clearSavedSession]);
 
+  useEffect(() => {
+    const handleMaintenanceMode = (event) => {
+      applyMaintenanceMode(event && event.detail ? event.detail : null);
+    };
+
+    window.addEventListener(MAINTENANCE_EVENT, handleMaintenanceMode);
+
+    return () => {
+      window.removeEventListener(MAINTENANCE_EVENT, handleMaintenanceMode);
+    };
+  }, [applyMaintenanceMode]);
+
   const handleRetry = async () => {
     try {
       setBackendState("checking");
       setSessionRestorePending(false);
       const response = await fetchBootstrap();
-      applyBootstrapData(response);
-    } catch {
+      if (!applyBootstrapData(response)) {
+        return;
+      }
+
+      await syncSessionAfterBootstrap();
+    } catch (error) {
+      if (error && error.maintenance) {
+        applyMaintenanceMode(error.maintenanceState);
+        return;
+      }
+
       markBackendOffline(false);
     }
   };
@@ -2943,8 +3067,13 @@ export default function App() {
       setBackendState("ready");
       setBackendStatus("");
     } catch (error) {
-      if (nextSession) {
+      if (nextSession && !(error && error.maintenance)) {
         clearSavedSession();
+      }
+
+      if (error && error.maintenance) {
+        applyMaintenanceMode(error.maintenanceState);
+        return;
       }
 
       const message = error.message || "Login failed. Please try again.";
@@ -2969,6 +3098,7 @@ export default function App() {
     setUsername("");
     setPassword("");
     setBackendStatus("");
+    setMaintenanceState(null);
   }, [accessMode]);
 
   useEffect(() => {
@@ -2976,6 +3106,38 @@ export default function App() {
       clearSavedSession();
     }
   }, [accessMode, clearSavedSession, session]);
+
+  if (backendState === "maintenance") {
+    return (
+      <LoginScreen
+        role={accessMode}
+        username=""
+        setUsername={setUsername}
+        password=""
+        setPassword={setPassword}
+        onLogin={handleLogin}
+        onRetry={handleRetry}
+        loading={authLoading || backendState === "checking"}
+        statusMessage={backendStatus || DEFAULT_MAINTENANCE_MESSAGE}
+        maintenanceMode
+        maintenanceTitle={
+          maintenanceState && maintenanceState.title
+            ? maintenanceState.title
+            : DEFAULT_MAINTENANCE_TITLE
+        }
+        maintenanceHint={
+          maintenanceState && maintenanceState.completionMessage
+            ? maintenanceState.completionMessage
+            : DEFAULT_MAINTENANCE_COMPLETION_MESSAGE
+        }
+        retryLabel={
+          maintenanceState && maintenanceState.actionLabel
+            ? maintenanceState.actionLabel
+            : "Refresh"
+        }
+      />
+    );
+  }
 
   if (session && session.role === accessMode && sessionRestorePending) {
     return (
@@ -2991,6 +3153,7 @@ export default function App() {
         statusMessage={backendStatus}
         restoringSession
         sessionLabel={session.sellerName || session.username || accessMode}
+        retryLabel="Retry"
       />
     );
   }
@@ -3007,6 +3170,7 @@ export default function App() {
         onRetry={backendState === "offline" ? handleRetry : undefined}
         loading={authLoading || backendState === "checking"}
         statusMessage={backendStatus}
+        retryLabel="Retry"
       />
     );
   }

@@ -1476,40 +1476,63 @@ function ResultPressureBoard({ rows, collectionValue }) {
 }
 
 function RiskSection({ title, rows, collectionValue = 0 }) {
-  const rankedRows = [...rows].sort(sortRiskRows);
-  const topRiskValue = rankedRows[0] ? rankedRows[0].payoutRisk : 0;
+  const topRows = getTopRiskRows(rows, 3);
+  const orderedRows = [...rows].sort((left, right) =>
+    String(left.number).localeCompare(String(right.number), undefined, {
+      numeric: true,
+    })
+  );
 
   return (
     <div className="glass-panel admin-risk-section">
       <div className="panel-title-row">
         <strong>{title}</strong>
-        <span>Highest first for quick reduce action</span>
+        <span>0-9 stays visible together for fast mobile scanning</span>
       </div>
 
-      <div className="admin-risk-grid">
-        {rankedRows.map((row) => {
+      {topRows.length > 0 && (
+        <div className="admin-house-top-strip">
+          {topRows.map((row, index) => {
+            const tone = getRiskTone(row.payoutRisk, collectionValue);
+
+            return (
+              <div
+                key={`${title}-top-${row.number}`}
+                className={`admin-house-top-chip admin-risk-${tone}`}
+              >
+                <span>
+                  Hot {index + 1} | No. {row.number}
+                </span>
+                <strong>{formatCompactCurrency(row.payoutRisk)}</strong>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="admin-house-grid">
+        {orderedRows.map((row) => {
           const tone = getRiskTone(row.payoutRisk, collectionValue);
 
           return (
             <div
               key={`${title}-${row.number}`}
-              className={`admin-risk-card admin-risk-${tone}`}
+              className={`admin-house-box admin-risk-${tone} ${
+                row.payoutRisk > 0 ? "active" : ""
+              }`}
             >
-              <div className="admin-risk-card-top">
-                <strong>{row.number}</strong>
-                <span className={`admin-risk-chip admin-risk-chip-${tone}`}>
-                  {getRiskChipLabel(row, tone, topRiskValue)}
-                </span>
-              </div>
-
-              <div className="admin-risk-card-metrics">
+              <strong>{row.number}</strong>
+              <div className="admin-house-box-meta">
                 <span>Qty {row.totalQty}</span>
-                <span>Sale {formatCompactCurrency(row.totalAmount)}</span>
+                <small>
+                  {row.payoutRisk > 0
+                    ? formatCompactCurrency(row.payoutRisk)
+                    : "Safe"}
+                </small>
               </div>
-
-              <div className="admin-risk-card-footer">
-                <strong>{formatCurrency(row.payoutRisk)}</strong>
-                <span>{getRiskShareText(row.payoutRisk, collectionValue)}</span>
+              <div className="admin-house-box-footer">
+                <span>Sale {formatCompactCurrency(row.totalAmount)}</span>
+                <span>{getRiskShareCompactText(row.payoutRisk, collectionValue)}</span>
               </div>
             </div>
           );
@@ -1978,26 +2001,6 @@ function createEmptyResultPressureRow(collectionValue = 0) {
   };
 }
 
-function getRiskChipLabel(row, tone, topRiskValue) {
-  if (!row.payoutRisk) {
-    return "Safe";
-  }
-
-  if (row.payoutRisk === topRiskValue) {
-    return "Highest";
-  }
-
-  if (tone === "danger") {
-    return "Reduce";
-  }
-
-  if (tone === "warning") {
-    return "Watch";
-  }
-
-  return "Open";
-}
-
 function getRiskShareText(riskValue, collectionValue) {
   if (!riskValue) {
     return "No pressure";
@@ -2008,6 +2011,18 @@ function getRiskShareText(riskValue, collectionValue) {
   }
 
   return `${Math.round((riskValue / collectionValue) * 100)}% of collection`;
+}
+
+function getRiskShareCompactText(riskValue, collectionValue) {
+  if (!riskValue) {
+    return "Safe";
+  }
+
+  if (!collectionValue) {
+    return "Wait";
+  }
+
+  return `${Math.round((riskValue / collectionValue) * 100)}%`;
 }
 
 function getResultBufferText(riskValue, collectionValue) {

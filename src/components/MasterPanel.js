@@ -4,7 +4,6 @@ import BrandMark from "./BrandMark.js";
 import { save } from "../untils/storage.js";
 import {
   createMasterAdminApi,
-  createSellerApi,
   fetchAdminOverviewApi,
   fetchMasterAdminsApi,
   fetchResultsApi,
@@ -12,21 +11,11 @@ import {
   fetchTicketsApi,
   mapResultsToLookup,
   updateMasterAdminAccountApi,
-  updateSellerApi,
 } from "../untils/api.js";
-import { DEFAULT_SELLERS, SELLER_LIST_KEY, getStoredSellers } from "../untils/adminStorage.js";
+import { SELLER_LIST_KEY, getStoredSellers } from "../untils/adminStorage.js";
 
 const SINGLE_PAYOUT = 100;
 const JURI_PAYOUT = 600;
-
-const emptySellerForm = {
-  name: "",
-  mobile: "",
-  username: "",
-  password: "",
-  singleCommission: String(DEFAULT_SELLERS[0].singleCommission),
-  juriCommission: String(DEFAULT_SELLERS[0].juriCommission),
-};
 
 const emptyAdminForm = {
   username: "",
@@ -38,8 +27,6 @@ export default function MasterPanel({ session, onLogout }) {
   const [adminForm, setAdminForm] = useState(emptyAdminForm);
   const [editingAdminId, setEditingAdminId] = useState(null);
   const [adminLoading, setAdminLoading] = useState(false);
-  const [sellerForm, setSellerForm] = useState(emptySellerForm);
-  const [editingSellerId, setEditingSellerId] = useState(null);
   const [sellerLoading, setSellerLoading] = useState(false);
   const [businessLoading, setBusinessLoading] = useState(false);
   const [sellers, setSellers] = useState(getStoredSellers);
@@ -226,98 +213,12 @@ export default function MasterPanel({ session, onLogout }) {
     }
   };
 
-  const handleSaveSeller = async () => {
-    const trimmedPassword = sellerForm.password.trim();
-    const trimmed = {
-      name: sellerForm.name.trim(),
-      mobile: sellerForm.mobile.trim(),
-      username: sellerForm.username.trim(),
-      singleCommission: sanitizeDecimal(sellerForm.singleCommission),
-      juriCommission: sanitizeDecimal(sellerForm.juriCommission),
-    };
-
-    if (!trimmed.name || !trimmed.username || (!editingSellerId && !trimmedPassword)) {
-      window.alert("Name, username and password are required");
-      return;
-    }
-
-    if (trimmed.singleCommission <= 0 || trimmed.juriCommission <= 0) {
-      window.alert("Set valid single and juri commission");
-      return;
-    }
-
-    const duplicate = sellers.find(
-      (seller) =>
-        seller.username.toLowerCase() === trimmed.username.toLowerCase() &&
-        seller.id !== editingSellerId
-    );
-
-    if (duplicate) {
-      window.alert("Username already exists");
-      return;
-    }
-
-    try {
-      setSellerLoading(true);
-      const response = editingSellerId
-        ? await updateSellerApi(editingSellerId, {
-            ...trimmed,
-            ...(trimmedPassword ? { password: trimmedPassword } : {}),
-          })
-        : await createSellerApi({
-            ...trimmed,
-            password: trimmedPassword,
-            active: true,
-          });
-
-      setSellers(response.sellers || []);
-      setEditingSellerId(null);
-      setSellerForm(emptySellerForm);
-    } catch (error) {
-      window.alert(error.message || "Seller save failed");
-    } finally {
-      setSellerLoading(false);
-    }
-  };
-
-  const startSellerEdit = (seller) => {
-    setEditingSellerId(seller.id);
-    setSellerForm({
-      name: seller.name,
-      mobile: seller.mobile,
-      username: seller.username,
-      password: "",
-      singleCommission: String(seller.singleCommission),
-      juriCommission: String(seller.juriCommission),
-    });
-  };
-
   const startAdminEdit = (admin) => {
     setEditingAdminId(admin.id);
     setAdminForm({
       username: admin.username,
       password: "",
     });
-  };
-
-  const toggleSellerActive = async (sellerId) => {
-    const currentSeller = sellers.find((seller) => seller.id === sellerId);
-
-    if (!currentSeller) {
-      return;
-    }
-
-    try {
-      setSellerLoading(true);
-      const response = await updateSellerApi(sellerId, {
-        active: !currentSeller.active,
-      });
-      setSellers(response.sellers || []);
-    } catch (error) {
-      window.alert(error.message || "Seller update failed");
-    } finally {
-      setSellerLoading(false);
-    }
   };
 
   return (
@@ -329,7 +230,7 @@ export default function MasterPanel({ session, onLogout }) {
               <BrandMark size="md" tagline="Premium ticket control system" />
               <span className="admin-chip">Master</span>
               <h1>Master Panel</h1>
-              <p>See admin business first, then create or control admin and seller accounts with fewer taps.</p>
+              <p>Master controls admin logins here and only reads seller activity across the business.</p>
             </div>
 
             <div className="master-hero-actions">
@@ -360,8 +261,8 @@ export default function MasterPanel({ session, onLogout }) {
             </div>
 
             <p className="master-note">
-              All admin logins open the same admin panel and business scope, so this view shows
-              one shared admin total along with the seller performance ranking.
+              This view shows the full business total across all admin-owned sellers, while seller
+              create, edit, password reset, and active control stay inside each admin panel.
             </p>
 
             <div className="mini-summary master-business-grid">
@@ -475,96 +376,6 @@ export default function MasterPanel({ session, onLogout }) {
             </div>
           </div>
 
-          <div className="glass-panel">
-            <div className="panel-title-row">
-              <strong>{editingSellerId ? "Edit Seller" : "Add Seller"}</strong>
-              <span>{sellerLoading ? "Saving..." : "Seller account control"}</span>
-            </div>
-
-            <p className="security-note">
-              Seller can change a password alone only with the current password. If the seller forgets it, admin can set a new one from Seller Manage.
-            </p>
-
-            <div className="form-row">
-              <input
-                value={sellerForm.name}
-                onChange={(event) =>
-                  setSellerForm((current) => ({ ...current, name: event.target.value }))
-                }
-                placeholder="Name"
-              />
-              <input
-                type="tel"
-                value={sellerForm.mobile}
-                onChange={(event) =>
-                  setSellerForm((current) => ({ ...current, mobile: event.target.value }))
-                }
-                placeholder="Mobile"
-              />
-              <input
-                value={sellerForm.username}
-                onChange={(event) =>
-                  setSellerForm((current) => ({ ...current, username: event.target.value }))
-                }
-                placeholder="Username"
-                autoCapitalize="none"
-                autoCorrect="off"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <input
-                type="password"
-                value={sellerForm.password}
-                onChange={(event) =>
-                  setSellerForm((current) => ({ ...current, password: event.target.value }))
-                }
-                placeholder={
-                  editingSellerId ? "Leave blank to keep current password" : "Password"
-                }
-                autoCapitalize="none"
-                autoCorrect="off"
-                autoComplete="new-password"
-                spellCheck={false}
-              />
-              <input
-                value={sellerForm.singleCommission}
-                onChange={(event) =>
-                  setSellerForm((current) => ({
-                    ...current,
-                    singleCommission: event.target.value.replace(/[^\d.]/g, ""),
-                  }))
-                }
-                placeholder="Single Commission"
-              />
-              <input
-                value={sellerForm.juriCommission}
-                onChange={(event) =>
-                  setSellerForm((current) => ({
-                    ...current,
-                    juriCommission: event.target.value.replace(/[^\d.]/g, ""),
-                  }))
-                }
-                placeholder="Juri Commission"
-              />
-            </div>
-
-            <div className="footer-actions">
-              <button type="button" onClick={handleSaveSeller}>
-                {editingSellerId ? "Update Seller" : "Add Seller"}
-              </button>
-              <button
-                type="button"
-                className="outline-btn"
-                onClick={() => {
-                  setEditingSellerId(null);
-                  setSellerForm(emptySellerForm);
-                }}
-              >
-                Reset
-              </button>
-            </div>
-          </div>
-
           <div className="glass-panel master-admin-list-panel">
             <div className="panel-title-row">
               <strong>Admin Accounts</strong>
@@ -592,7 +403,7 @@ export default function MasterPanel({ session, onLogout }) {
                   </div>
 
                   <p className="saved-line">
-                    Same risk board, same seller management, same shared admin business totals.
+                    This admin controls their own seller accounts from the regular <code>/admin</code> panel.
                   </p>
 
                   <div className="inline-actions">
@@ -608,8 +419,13 @@ export default function MasterPanel({ session, onLogout }) {
           <div className="glass-panel master-seller-list-panel">
             <div className="panel-title-row">
               <strong>Seller Accounts</strong>
-              <span>{sellerLoading ? "Syncing..." : `${sellers.length} seller(s)`}</span>
+              <span>{sellerLoading ? "Syncing..." : `${sellers.length} seller(s) view only`}</span>
             </div>
+
+            <p className="master-note">
+              Master can read seller performance here, but seller create, edit, password reset, and
+              active control stay with the responsible admin only.
+            </p>
 
             <div className="ticket-list">
               {orderedSellers.map((seller) => {
@@ -636,19 +452,6 @@ export default function MasterPanel({ session, onLogout }) {
                     <p className="saved-line">
                       Single Comm. {seller.singleCommission} | Juri Comm. {seller.juriCommission}
                     </p>
-
-                    <div className="inline-actions">
-                      <button type="button" className="outline-btn" onClick={() => startSellerEdit(seller)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="outline-btn"
-                        onClick={() => toggleSellerActive(seller.id)}
-                      >
-                        {seller.active ? "Pause" : "Activate"}
-                      </button>
-                    </div>
                   </div>
                 );
               })}
@@ -855,11 +658,6 @@ function leftPad(value, targetLength, fillCharacter) {
   }
 
   return output;
-}
-
-function sanitizeDecimal(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function formatCurrency(value) {

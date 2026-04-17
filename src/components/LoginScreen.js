@@ -12,6 +12,10 @@ export default function LoginScreen({
   statusMessage = "",
   restoringSession = false,
   sessionLabel = "",
+  maintenanceMode = false,
+  maintenanceTitle = "Updating Server",
+  maintenanceHint = "Refresh or reopen after update is complete.",
+  retryLabel = "Retry",
 }) {
   const isAdmin = role === "admin";
   const isMaster = role === "master";
@@ -27,6 +31,41 @@ export default function LoginScreen({
     : isAdmin
       ? "Admin Username"
       : "Seller Username";
+
+  if (maintenanceMode) {
+    return (
+      <div className="login-shell">
+        <div className="login-card maintenance-card">
+          <BrandMark size="md" tagline="Fast, intelligent ticket operations" />
+          <div className="login-kicker maintenance-kicker">{accessLabel}</div>
+          <h1>{maintenanceTitle}</h1>
+          <p className="login-copy">{statusMessage}</p>
+
+          <div className="maintenance-status-panel" aria-live="polite">
+            <div className="maintenance-pulse" aria-hidden="true" />
+            <div>
+              <strong>Server maintenance in progress</strong>
+              <span>{maintenanceHint}</span>
+            </div>
+          </div>
+
+          {onRetry ? (
+            <div className="maintenance-action-bar">
+              <span>Refresh or reopen after the update finishes.</span>
+              <button
+                type="button"
+                className="outline-btn login-retry-btn"
+                onClick={onRetry}
+                disabled={loading}
+              >
+                {loading ? "Checking..." : retryLabel}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   if (restoringSession) {
     return (
@@ -59,7 +98,7 @@ export default function LoginScreen({
                   onClick={onRetry}
                   disabled={loading}
                 >
-                  {loading ? "Checking..." : "Retry"}
+                  {loading ? "Checking..." : retryLabel}
                 </button>
               ) : null}
             </div>
@@ -127,7 +166,7 @@ export default function LoginScreen({
                 onClick={onRetry}
                 disabled={loading}
               >
-                {loading ? "Checking..." : "Retry"}
+                {loading ? "Checking..." : retryLabel}
               </button>
             ) : null}
           </div>

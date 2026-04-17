@@ -26,9 +26,10 @@ const PUBLIC_SELLER = {
   juriCommission: DEFAULT_SELLER.juriCommission,
 };
 
-function createJsonResponse(payload, ok = true) {
+function createJsonResponse(payload, ok = true, status = ok ? 200 : 500) {
   return Promise.resolve({
     ok,
+    status,
     json: async () => payload,
   });
 }
@@ -234,6 +235,14 @@ async function openManualTool(container) {
   }
 }
 
+async function openEntryPopup(container, label) {
+  const popupButton = findButtonByText(container, label);
+
+  if (popupButton) {
+    await clickButton(popupButton);
+  }
+}
+
 function getManualQuantityInput(container) {
   return container.querySelector(".seller-manual-house-actions .seller-entry-field input");
 }
@@ -351,6 +360,80 @@ test("returns to login screen when backend is offline on startup", async () => {
   await unmountApp(root);
 });
 
+test("shows the maintenance screen when bootstrap reports an update window", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  global.fetch = jest.fn((url) => {
+    const endpoint = String(url);
+
+    if (endpoint.includes("/bootstrap")) {
+      return createJsonResponse({
+        sellers: [PUBLIC_SELLER],
+        maintenance: {
+          enabled: true,
+          title: "Updating Server",
+          message: "Updating server maintenance. Please wait a short time.",
+          completionMessage: "Refresh or reopen after update is complete.",
+          actionLabel: "Refresh",
+        },
+      });
+    }
+
+    return createJsonResponse({});
+  });
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Updating Server");
+  expect(container.textContent).toContain("Server maintenance in progress");
+  expect(container.textContent).toContain("Refresh or reopen after update is complete.");
+  expect(container.textContent).toContain("Refresh");
+  expect(container.textContent).not.toContain("Seller Panel Login");
+  await unmountApp(root);
+});
+
+test("switches an active seller session into maintenance mode when the app receives a maintenance event", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Seller Panel");
+
+  await act(async () => {
+    window.dispatchEvent(
+      new CustomEvent("lottery-maintenance-mode", {
+        detail: {
+          enabled: true,
+          title: "Updating Server",
+          message: "Updating server maintenance. Please wait a short time.",
+          completionMessage: "Refresh or reopen after update is complete.",
+          actionLabel: "Refresh",
+        },
+      })
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(container.textContent).toContain("Updating Server");
+  expect(container.textContent).toContain("Server maintenance in progress");
+  expect(container.textContent).not.toContain("Seller Panel");
+  await unmountApp(root);
+});
+
 test("renders seller panel with seller session", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.setItem(
@@ -373,8 +456,12 @@ test("renders seller panel with seller session", async () => {
   expect(container.textContent).toContain("Seller Ticket Entry");
   expect(container.textContent).toContain("Manual ticket entry with the same stable ticket engine, totals, and save flow.");
   expect(container.textContent).not.toContain("Super Fast Manual Entry");
-  expect(container.textContent).toContain("Current Ticket Rows");
-  expect(findButtonByText(container, "Save Ticket")).toBeTruthy();
+  expect(findButtonByText(container, "Info")).toBeTruthy();
+  expect(findButtonByText(container, "3rd")).toBeTruthy();
+  expect(findButtonByText(container, "4th")).toBeTruthy();
+  expect(findButtonByText(container, "Juri")).toBeTruthy();
+  expect(findButtonByText(container, "Save")).toBeTruthy();
+  expect(findButtonByText(container, "Print")).toBeTruthy();
   await unmountApp(root);
 });
 
@@ -396,15 +483,16 @@ test("renders the manual fast-entry tool directly on seller ticket page", async 
   const root = await renderApp(container);
 
   expect(container.textContent).not.toContain("Super Fast Manual Entry");
+  await openEntryPopup(container, "3rd");
   expect(container.textContent).toContain("3rd House");
-  expect(container.textContent).toContain("4th House");
-  expect(container.textContent).toContain("Juri");
-  expect(container.textContent).toContain("DueDesk");
+  expect(container.textContent).toContain("Selected Digit");
   expect(container.textContent).toContain("Qty 10");
+  await openEntryPopup(container, "Save");
+  expect(container.textContent).toContain("Current Ticket Rows");
+  expect(container.textContent).toContain("Save Ticket");
+  await openEntryPopup(container, "Print");
   expect(container.textContent).toContain("Live Ticket Preview");
-  expect(container.textContent).toContain("Undo Last");
-  expect(container.textContent).toContain("Clear Current Mode");
-  expect(container.textContent).toContain("Print Draft");
+  expect(container.textContent).toContain("Print Ticket");
   await unmountApp(root);
 });
 
@@ -840,36 +928,8 @@ test("opens the mobile-friendly due section and jumps to ticket store from a due
   await unmountApp(root);
 });
 
-test("opens due directly from the new ticket quick access bar", async () => {
+test("switches the seller new-ticket popup panels from the top menu", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  const dueTicket = {
-    id: 3110,
-    customerName: "Amit Roy",
-    customerPhone: "",
-    date: "2026-04-06",
-    drawTime: "11:00",
-    paymentMode: "Unpaid",
-    paidAmount: 0,
-    dueAmount: 22,
-    total: 22,
-    commission: 1.8,
-    claimed: false,
-    payout: 0,
-    winningNumber: "",
-    createdAt: "2026-04-05T12:00:00.000Z",
-    sellerUsername: "seller1",
-    items: [{ type: "single3", num: "2", qty: 2, label: "3rd House 2", total: 22, profit: 1.8 }],
-  };
-  const baseFetchMock = createSuccessFetchMock();
-
-  global.fetch = jest.fn((url) => {
-    if (String(url).includes("/tickets")) {
-      return createJsonResponse({ tickets: [dueTicket] });
-    }
-
-    return baseFetchMock(url);
-  });
-
   localStorage.setItem(
     SESSION_KEY,
     JSON.stringify({
@@ -885,10 +945,16 @@ test("opens due directly from the new ticket quick access bar", async () => {
 
   const root = await renderApp(container);
 
-  await clickButton(findButtonByText(container, "DueDesk"));
-
-  expect(container.textContent).toContain("Due Management");
-  expect(container.textContent).toContain("Amit Roy");
+  await openEntryPopup(container, "3rd");
+  expect(container.textContent).toContain("Selected Digit");
+  await openEntryPopup(container, "4th");
+  expect(container.textContent).toContain("4th House");
+  await openEntryPopup(container, "Juri");
+  expect(container.textContent).toContain("Juri Number");
+  await openEntryPopup(container, "Save");
+  expect(container.textContent).toContain("Current Ticket Rows");
+  await openEntryPopup(container, "Print");
+  expect(container.textContent).toContain("Print Ticket");
 
   await unmountApp(root);
 });
@@ -931,6 +997,7 @@ test("saves a new ticket from the manual seller entry screen", async () => {
   const root = await renderApp(container);
   await openManualTool(container);
 
+  await openEntryPopup(container, "3rd");
   await clickButton(findManualDigitButton(container, "1"));
   const quantityInput = getManualQuantityInput(container);
   setInputValue(quantityInput, "1");
@@ -939,6 +1006,7 @@ test("saves a new ticket from the manual seller entry screen", async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  await openEntryPopup(container, "Save");
   const saveTicketButton = findButtonByText(container, "Save Ticket");
 
   expect(saveTicketButton).toBeTruthy();
@@ -1003,11 +1071,13 @@ test("prints from the new ticket section before and after save", async () => {
   const root = await renderApp(container);
   await openManualTool(container);
 
+  await openEntryPopup(container, "3rd");
   await clickButton(findManualDigitButton(container, "1"));
   setInputValue(getManualQuantityInput(container), "1");
   await clickButton(findButtonContainingText(container, "Add 3H"));
 
-  const printDraftButton = findButtonByText(container, "Print Draft");
+  await openEntryPopup(container, "Print");
+  const printDraftButton = findButtonByText(container, "Print Ticket");
 
   expect(printDraftButton).toBeTruthy();
   expect(printDraftButton.disabled).toBe(false);
@@ -1016,7 +1086,7 @@ test("prints from the new ticket section before and after save", async () => {
 
   expect(openSpy).toHaveBeenCalledTimes(1);
   expect(draftPrintWindow.document.write).toHaveBeenCalledWith(expect.stringContaining("Ticket Preview"));
-  expect(draftPrintWindow.document.write).toHaveBeenCalledWith(expect.stringContaining("Draft Ticket"));
+  expect(draftPrintWindow.document.write).toHaveBeenCalledWith(expect.stringContaining("Ticket #"));
 
   act(() => {
     draftPrintWindow.onload();
@@ -1024,13 +1094,20 @@ test("prints from the new ticket section before and after save", async () => {
 
   expect(draftPrintWindow.print).toHaveBeenCalledTimes(1);
 
+  await openEntryPopup(container, "Save");
   await clickButton(findButtonByText(container, "Save Ticket"));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  await openEntryPopup(container, "Print");
   expect(container.textContent).toContain("Last Saved Ticket");
   expect(findButtonByText(container, "Reprint Saved")).toBeTruthy();
+
+  expect(tickets[0] && tickets[0].id).toBeTruthy();
+  expect(draftPrintWindow.document.write).toHaveBeenCalledWith(
+    expect.stringContaining(`Ticket #${tickets[0].id}`)
+  );
 
   await clickButton(findButtonByText(container, "Reprint Saved"));
 
@@ -1038,7 +1115,9 @@ test("prints from the new ticket section before and after save", async () => {
   expect(savedPrintWindow.document.write).toHaveBeenCalledWith(
     expect.stringContaining("Customer Ticket")
   );
-  expect(savedPrintWindow.document.write).toHaveBeenCalledWith(expect.stringContaining("Ticket #"));
+  expect(savedPrintWindow.document.write).toHaveBeenCalledWith(
+    expect.stringContaining(`Ticket #${tickets[0].id}`)
+  );
 
   act(() => {
     savedPrintWindow.onload();
@@ -1068,25 +1147,30 @@ test("adds duplicate manual-entry values into the same house and juri rows", asy
   const root = await renderApp(container);
   await openManualTool(container);
 
+  await openEntryPopup(container, "3rd");
   await clickButton(findManualDigitButton(container, "3"));
   setInputValue(getManualQuantityInput(container), "5");
   await clickButton(findButtonContainingText(container, "Add 3H"));
 
+  await openEntryPopup(container, "Save");
   expect(container.textContent).toContain("3H3 × 5");
 
+  await openEntryPopup(container, "3rd");
   await clickButton(findManualDigitButton(container, "3"));
   setInputValue(getManualQuantityInput(container), "2");
   await clickButton(findButtonContainingText(container, "Add 3H"));
 
+  await openEntryPopup(container, "Save");
   expect(container.textContent).toContain("3H3 × 7");
 
-  await clickButton(findButtonContainingText(container, "Juri"));
+  await openEntryPopup(container, "Juri");
 
   const entryInputs = getManualJuriInputs(container);
   setInputValue(entryInputs.numberInput, "12");
   setInputValue(entryInputs.quantityInput, "10");
   await clickButton(findButtonByText(container, "Add Row"));
 
+  await openEntryPopup(container, "Save");
   expect(container.textContent).toContain("J12 × 10");
   expect(container.textContent).toContain("₹177.00");
 
@@ -1368,6 +1452,97 @@ test("renders admin panel with admin session", async () => {
   await unmountApp(root);
 });
 
+test("restores admin session with the scoped seller list instead of bootstrap sellers", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/admin");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "admin",
+      token: "admin-token",
+      username: "admin",
+      adminId: 2,
+    })
+  );
+
+  const scopedSeller = {
+    id: 22,
+    name: "Branch Seller",
+    mobile: "",
+    username: "branchseller",
+    active: true,
+    singleCommission: 0.9,
+    juriCommission: 2.65,
+  };
+
+  global.fetch = jest.fn((url) => {
+    const endpoint = String(url);
+
+    if (endpoint.includes("/bootstrap")) {
+      return createJsonResponse({ sellers: [PUBLIC_SELLER] });
+    }
+
+    if (endpoint.includes("/auth/session")) {
+      return createJsonResponse({
+        session: JSON.parse(localStorage.getItem(SESSION_KEY)),
+      });
+    }
+
+    if (endpoint.includes("/sellers")) {
+      return createJsonResponse({ sellers: [scopedSeller] });
+    }
+
+    if (endpoint.includes("/auth/logout")) {
+      return createJsonResponse({ ok: true });
+    }
+
+    if (endpoint.includes("/auth/password")) {
+      return createJsonResponse({ ok: true, message: "Password updated" });
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets: [] });
+    }
+
+    if (endpoint.includes("/results")) {
+      return createJsonResponse({ results: [] });
+    }
+
+    if (endpoint.includes("/reports/summary")) {
+      return createJsonResponse({ report: {} });
+    }
+
+    if (endpoint.includes("/reports/seller")) {
+      return createJsonResponse({ report: {} });
+    }
+
+    if (endpoint.includes("/dashboard/risk")) {
+      return createJsonResponse({ riskBoard: {} });
+    }
+
+    if (endpoint.includes("/dashboard/overview")) {
+      return createJsonResponse({ overview: {} });
+    }
+
+    return createJsonResponse({});
+  });
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  const sellerManageButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Seller Manage"
+  );
+
+  await clickButton(sellerManageButton);
+
+  expect(container.textContent).toContain("Branch Seller");
+  expect(container.textContent).not.toContain("Seller One");
+  expect(JSON.parse(localStorage.getItem("lottery-sellers-v1"))).toEqual([scopedSeller]);
+  await unmountApp(root);
+});
+
 test("shows admin self password change in seller manage section", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setPathname("/admin");
@@ -1427,7 +1602,7 @@ test("renders master panel with master session", async () => {
   await unmountApp(root);
 });
 
-test("keeps seller password blank while editing in master panel", async () => {
+test("shows seller accounts as read-only in master panel", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setPathname("/krishna");
   localStorage.setItem(
@@ -1443,20 +1618,11 @@ test("keeps seller password blank while editing in master panel", async () => {
   document.body.appendChild(container);
 
   const root = await renderApp(container);
-  const editButton = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Edit"
-  );
-
-  await act(async () => {
-    editButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  const passwordInput = container.querySelector(
-    'input[placeholder="Leave blank to keep current password"]'
-  );
-
-  expect(passwordInput).not.toBeNull();
-  expect(passwordInput.value).toBe("");
+  expect(container.textContent).toContain("seller(s) view only");
+  expect(container.textContent).toContain("seller create, edit, password reset, and");
+  expect(container.textContent).not.toContain("Add Seller");
+  expect(container.textContent).not.toContain("Update Seller");
+  expect(container.textContent).not.toContain("Pause");
+  expect(container.querySelector('input[placeholder="Single Commission"]')).toBeNull();
   await unmountApp(root);
 });

@@ -1,3 +1,5 @@
+const { normalizeOptionalId } = require("./access");
+
 const DEFAULT_COMMISSION = {
   single: 0.9,
   juri: 2.65,
@@ -26,6 +28,7 @@ const DEFAULT_SELLERS = [
     active: true,
     singleCommission: DEFAULT_COMMISSION.single,
     juriCommission: DEFAULT_COMMISSION.juri,
+    ownerAdminId: DEFAULT_ADMIN.id,
   },
 ];
 
@@ -95,6 +98,7 @@ function normalizeSeller(input = {}, index = 0) {
       typeof input.juriCommission === "number"
         ? input.juriCommission
         : DEFAULT_COMMISSION.juri,
+    ownerAdminId: normalizeOptionalId(input.ownerAdminId),
   };
 }
 
