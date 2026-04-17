@@ -2687,6 +2687,10 @@ function getIntlNumberFormat(locale, options) {
   return globalIntl ? new globalIntl.NumberFormat(locale, options) : null;
 }
 
+function matchesAccessPath(pathname, routePrefix) {
+  return pathname === routePrefix || pathname.startsWith(`${routePrefix}/`);
+}
+
 function getAccessMode() {
   if (typeof window === "undefined" || !window.location) {
     return "seller";
@@ -2694,12 +2698,16 @@ function getAccessMode() {
 
   const pathname = window.location.pathname.toLowerCase();
 
-  if (pathname === "/krishna" || pathname.startsWith("/krishna/")) {
+  if (matchesAccessPath(pathname, "/krishna")) {
     return "master";
   }
 
-  if (pathname.startsWith("/admin")) {
+  if (matchesAccessPath(pathname, "/admin")) {
     return "admin";
+  }
+
+  if (matchesAccessPath(pathname, "/seller")) {
+    return "seller";
   }
 
   return "seller";

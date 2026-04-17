@@ -319,6 +319,21 @@ test("renders seller login screen by default without demo credentials", async ()
   await unmountApp(root);
 });
 
+test("renders seller login on explicit seller path", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/seller");
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Seller Panel Login");
+  expect(container.textContent).toContain("Seller Access");
+  expect(container.textContent).not.toContain("Admin Login");
+  expect(container.textContent).not.toContain("Master Panel Login");
+  await unmountApp(root);
+});
+
 test("renders admin login only on admin path", async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setPathname("/admin");
@@ -487,6 +502,30 @@ test("renders seller panel with seller session", async () => {
   expect(findButtonByText(container, "Juri")).toBeTruthy();
   expect(findButtonByText(container, "Save")).toBeTruthy();
   expect(findButtonByText(container, "Print")).toBeTruthy();
+  await unmountApp(root);
+});
+
+test("restores seller panel on nested seller link after refresh", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setPathname("/seller/dashboard");
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+
+  expect(container.textContent).toContain("Seller Panel");
+  expect(container.textContent).toContain("Seller Ticket Entry");
+  expect(container.textContent).not.toContain("Seller Panel Login");
   await unmountApp(root);
 });
 

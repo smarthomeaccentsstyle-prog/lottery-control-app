@@ -18,6 +18,8 @@ test("keeps app routes refreshable instead of treating them like files", () => {
   assert.equal(isStaticAssetPath("/"), false);
   assert.equal(isStaticAssetPath("/admin"), false);
   assert.equal(isStaticAssetPath("/admin/users"), false);
+  assert.equal(isStaticAssetPath("/seller"), false);
+  assert.equal(isStaticAssetPath("/seller/due"), false);
   assert.equal(isStaticAssetPath("/krishna"), false);
   assert.equal(isStaticAssetPath("/krishna/report/open"), false);
 });
@@ -26,6 +28,8 @@ test("serves the app shell for direct browser refresh routes but not api paths",
   assert.equal(shouldServeAppShell("/"), true);
   assert.equal(shouldServeAppShell("/admin"), true);
   assert.equal(shouldServeAppShell("/admin/dashboard"), true);
+  assert.equal(shouldServeAppShell("/seller"), true);
+  assert.equal(shouldServeAppShell("/seller/dashboard"), true);
   assert.equal(shouldServeAppShell("/krishna"), true);
   assert.equal(shouldServeAppShell("/api/tickets"), false);
   assert.equal(shouldServeAppShell("/static/css/main.css"), false);
