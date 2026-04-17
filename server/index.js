@@ -60,6 +60,10 @@ const {
   getStorageInfo,
   updateDb,
 } = require("./lib/store");
+const {
+  isStaticAssetPath,
+  shouldServeAppShell,
+} = require("./lib/staticRouting");
 
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -1025,11 +1029,11 @@ const server = http.createServer(async (req, res) => {
       }));
     }
 
-    if ((req.method === "GET" || req.method === "HEAD") && shouldServeStatic(pathname)) {
+    if ((req.method === "GET" || req.method === "HEAD") && isStaticAssetPath(pathname)) {
       return serveStaticAsset(res, pathname, req.method);
     }
 
-    if ((req.method === "GET" || req.method === "HEAD") && hasBuildIndex()) {
+    if ((req.method === "GET" || req.method === "HEAD") && shouldServeAppShell(pathname)) {
       return serveIndexHtml(res, req.method);
     }
 
@@ -2103,10 +2107,6 @@ function hasBuildIndex() {
   return fs.existsSync(path.join(BUILD_DIR, "index.html"));
 }
 
-function shouldServeStatic(pathname) {
-  return pathname === "/" || pathname.startsWith("/static/") || pathname.endsWith(".json") || pathname.endsWith(".ico") || pathname.endsWith(".png") || pathname.endsWith(".svg") || pathname.endsWith(".txt") || pathname.endsWith(".js") || pathname.endsWith(".css");
-}
-
 function serveStaticAsset(res, pathname, method = "GET") {
   if (!hasBuildIndex()) {
     return sendJson(res, 404, {
@@ -2129,10 +2129,6 @@ function serveStaticAsset(res, pathname, method = "GET") {
   }
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    if (pathname === "/") {
-      return serveIndexHtml(res);
-    }
-
     return sendJson(res, 404, {
       ok: false,
       message: "File not found",
