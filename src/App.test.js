@@ -510,10 +510,10 @@ test("renders the manual fast-entry tool directly on seller ticket page", async 
   expect(container.textContent).not.toContain("Super Fast Manual Entry");
   await openEntryPopup(container, "3rd");
   expect(container.textContent).toContain("3rd House");
-  expect(container.textContent).toContain("Selected Digit");
-  expect(container.textContent).toContain("Qty 10");
+  expect(container.textContent).toContain("Selected Number");
+  expect(container.textContent).toContain("Add Number");
   await openEntryPopup(container, "Save");
-  expect(container.textContent).toContain("Current Ticket Rows");
+  expect(container.textContent).toContain("Save Details");
   expect(container.textContent).toContain("Save Ticket");
   await openEntryPopup(container, "Print");
   expect(container.textContent).toContain("Live Ticket Preview");
@@ -1052,13 +1052,13 @@ test("switches the seller new-ticket popup panels from the top menu", async () =
   const root = await renderApp(container);
 
   await openEntryPopup(container, "3rd");
-  expect(container.textContent).toContain("Selected Digit");
+  expect(container.textContent).toContain("Selected Number");
   await openEntryPopup(container, "4th");
   expect(container.textContent).toContain("4th House");
   await openEntryPopup(container, "Juri");
   expect(container.textContent).toContain("Juri Number");
   await openEntryPopup(container, "Save");
-  expect(container.textContent).toContain("Current Ticket Rows");
+  expect(container.textContent).toContain("Save Details");
   await openEntryPopup(container, "Print");
   expect(container.textContent).toContain("Print Ticket");
 
@@ -1107,7 +1107,7 @@ test("saves a new ticket from the manual seller entry screen", async () => {
   await clickButton(findManualDigitButton(container, "1"));
   const quantityInput = getManualQuantityInput(container);
   setInputValue(quantityInput, "1");
-  await clickButton(findButtonContainingText(container, "Add 3H"));
+  await clickButton(findButtonContainingText(container, "Add Number"));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -1128,6 +1128,87 @@ test("saves a new ticket from the manual seller entry screen", async () => {
   expect(tickets[0].items).toHaveLength(1);
   expect(tickets[0].items[0].num).toBe("1");
   expect(tickets[0].items[0].qty).toBe(1);
+
+  await unmountApp(root);
+});
+
+test("saves partial due details from the seller save section", async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let tickets = [];
+  const baseFetchMock = createSuccessFetchMock();
+
+  global.fetch = jest.fn((url, options = {}) => {
+    const endpoint = String(url);
+    const method = options.method || "GET";
+
+    if (endpoint.includes("/tickets") && method === "POST") {
+      const payload = JSON.parse(options.body);
+      tickets = [{ ...payload }];
+      return createJsonResponse({ tickets });
+    }
+
+    if (endpoint.includes("/tickets")) {
+      return createJsonResponse({ tickets });
+    }
+
+    return baseFetchMock(url);
+  });
+
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({
+      role: "seller",
+      token: "seller-token",
+      username: "seller1",
+      sellerName: "Seller One",
+    })
+  );
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const root = await renderApp(container);
+  await openManualTool(container);
+
+  await openEntryPopup(container, "3rd");
+  await clickButton(findManualDigitButton(container, "2"));
+  setInputValue(getManualQuantityInput(container), "5");
+  await clickButton(findButtonContainingText(container, "Add Number"));
+
+  await openEntryPopup(container, "Save");
+
+  const saveTicketButton = findButtonByText(container, "Save Ticket");
+  const partialButton = findButtonByText(container, "Partial");
+  const nameInput = container.querySelector('input[aria-label="Customer name"]');
+  const phoneInput = container.querySelector('input[aria-label="Customer phone"]');
+  const dueInput = container.querySelector('input[aria-label="Due amount"]');
+
+  expect(saveTicketButton.disabled).toBe(false);
+
+  await clickButton(partialButton);
+
+  expect(saveTicketButton.disabled).toBe(true);
+
+  setInputValue(nameInput, "Riya Das");
+  setInputValue(phoneInput, "98765abc43210");
+  setInputValue(dueInput, "35");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(saveTicketButton.disabled).toBe(false);
+
+  await clickButton(saveTicketButton);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  expect(tickets).toHaveLength(1);
+  expect(tickets[0].customerName).toBe("Riya Das");
+  expect(tickets[0].customerPhone).toBe("9876543210");
+  expect(tickets[0].paymentMode).toBe("Partial");
+  expect(tickets[0].paidAmount).toBe(20);
+  expect(tickets[0].dueAmount).toBe(35);
 
   await unmountApp(root);
 });
@@ -1180,7 +1261,7 @@ test("prints from the new ticket section before and after save", async () => {
   await openEntryPopup(container, "3rd");
   await clickButton(findManualDigitButton(container, "1"));
   setInputValue(getManualQuantityInput(container), "1");
-  await clickButton(findButtonContainingText(container, "Add 3H"));
+  await clickButton(findButtonContainingText(container, "Add Number"));
 
   await openEntryPopup(container, "Print");
   const printDraftButton = findButtonByText(container, "Print Ticket");
@@ -1256,7 +1337,7 @@ test("adds duplicate manual-entry values into the same house and juri rows", asy
   await openEntryPopup(container, "3rd");
   await clickButton(findManualDigitButton(container, "3"));
   setInputValue(getManualQuantityInput(container), "5");
-  await clickButton(findButtonContainingText(container, "Add 3H"));
+  await clickButton(findButtonContainingText(container, "Add Number"));
 
   await openEntryPopup(container, "Save");
   expect(container.textContent).toContain("3H3 × 5");
@@ -1264,7 +1345,7 @@ test("adds duplicate manual-entry values into the same house and juri rows", asy
   await openEntryPopup(container, "3rd");
   await clickButton(findManualDigitButton(container, "3"));
   setInputValue(getManualQuantityInput(container), "2");
-  await clickButton(findButtonContainingText(container, "Add 3H"));
+  await clickButton(findButtonContainingText(container, "Add Number"));
 
   await openEntryPopup(container, "Save");
   expect(container.textContent).toContain("3H3 × 7");
@@ -1274,7 +1355,7 @@ test("adds duplicate manual-entry values into the same house and juri rows", asy
   const entryInputs = getManualJuriInputs(container);
   setInputValue(entryInputs.numberInput, "12");
   setInputValue(entryInputs.quantityInput, "10");
-  await clickButton(findButtonByText(container, "Add Row"));
+  await clickButton(findButtonByText(container, "Add Number"));
 
   await openEntryPopup(container, "Save");
   expect(container.textContent).toContain("J12 × 10");

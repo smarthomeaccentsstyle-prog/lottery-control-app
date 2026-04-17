@@ -129,6 +129,20 @@ function updateSeller(existing, input = {}) {
   });
 }
 
+function normalizePaymentMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (normalized === "unpaid") {
+    return "Unpaid";
+  }
+
+  if (normalized.includes("partial")) {
+    return "Partial";
+  }
+
+  return "Paid";
+}
+
 function normalizeTicket(input = {}, index = 0) {
   const now = new Date().toISOString();
 
@@ -139,7 +153,7 @@ function normalizeTicket(input = {}, index = 0) {
     customerPhone: input.customerPhone || "",
     date: input.date || formatDate(new Date()),
     drawTime: input.drawTime || "11:00",
-    paymentMode: input.paymentMode || "Paid",
+    paymentMode: normalizePaymentMode(input.paymentMode),
     paidAmount: Number(input.paidAmount || 0),
     dueAmount: Number(input.dueAmount || 0),
     items: Array.isArray(input.items) ? input.items : [],
