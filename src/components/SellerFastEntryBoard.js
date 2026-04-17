@@ -17,7 +17,7 @@ const EMPTY_MODE_INPUT = {
   number: "",
   quantity: "",
 };
-const QUANTITY_SHORTCUTS = [1, 5, 10, 50];
+const PAYMENT_MODE_OPTIONS = ["Paid", "Partial", "Unpaid"];
 
 const MODE_META = {
   third: {
@@ -82,6 +82,35 @@ function formatEntryNumber(mode, value) {
   }
 
   return digits.slice(0, 1);
+}
+
+function normalizePaymentModeLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (normalized === "unpaid") {
+    return "Unpaid";
+  }
+
+  if (normalized.includes("partial")) {
+    return "Partial";
+  }
+
+  return "Paid";
+}
+
+function getDueInputValue(paymentMode, paidAmount, currentDue, totalAmount) {
+  const normalizedMode = normalizePaymentModeLabel(paymentMode);
+  const safeTotal = Math.max(Number(totalAmount || 0), 0);
+
+  if (normalizedMode === "Partial") {
+    return paidAmount === "" ? "" : String(Math.max(Math.min(Number(currentDue || 0), safeTotal), 0));
+  }
+
+  if (normalizedMode === "Unpaid") {
+    return safeTotal > 0 ? String(safeTotal) : "";
+  }
+
+  return safeTotal > 0 ? "0" : "";
 }
 
 function buildPreviewRowKey(mode, value) {
@@ -209,23 +238,48 @@ function HouseDigitPad({ selectedDigit, onSelectDigit }) {
   );
 }
 
-function QuantityShortcutBar({ onApplyShortcut, onClearQuantity }) {
+function EntryMiniPreviewPanel({ formatCurrency, hasPreviewRows, previewLayout, previewSummary }) {
+  const totalQty = Number(previewSummary.singleQty || 0) + Number(previewSummary.juriQty || 0);
+
   return (
-    <div className="seller-qty-shortcuts" aria-label="Quantity shortcuts">
-      {QUANTITY_SHORTCUTS.map((value) => (
-        <button
-          key={value}
-          type="button"
-          className="seller-qty-shortcut-btn"
-          onClick={() => onApplyShortcut(String(value))}
-        >
-          Qty {value}
-        </button>
-      ))}
-      <button type="button" className="seller-qty-shortcut-btn seller-qty-clear-btn" onClick={onClearQuantity}>
-        Clear Qty
-      </button>
-    </div>
+    <section className="seller-entry-mini-preview">
+      <div className="seller-entry-mini-preview-head">
+        <div>
+          <span>Show</span>
+          <strong>
+            {hasPreviewRows
+              ? "Small live preview of the numbers you entered."
+              : "The numbers you enter will show here instantly."}
+          </strong>
+        </div>
+        <small>{formatCurrency(previewSummary.total || 0)}</small>
+      </div>
+
+      <div className="seller-entry-mini-preview-stats">
+        <div className="seller-entry-mini-preview-stat">
+          <span>Numbers</span>
+          <strong>{previewSummary.rows || 0}</strong>
+        </div>
+        <div className="seller-entry-mini-preview-stat">
+          <span>Qty</span>
+          <strong>{totalQty}</strong>
+        </div>
+        <div className="seller-entry-mini-preview-stat">
+          <span>Total</span>
+          <strong>{formatCurrency(previewSummary.total || 0)}</strong>
+        </div>
+      </div>
+
+      {hasPreviewRows ? (
+        <div className="seller-entry-mini-preview-format">
+          <TicketFormat layout={previewLayout} compact />
+        </div>
+      ) : (
+        <div className="seller-entry-mini-preview-empty">
+          Add a number and the compact preview will update here.
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -250,7 +304,7 @@ function LivePreviewPanel({
 
       <div className="seller-live-preview-stats">
         <div className="seller-live-preview-stat">
-          <span>Rows</span>
+          <span>Numbers</span>
           <strong>{previewSummary.rows || 0}</strong>
         </div>
         <div className="seller-live-preview-stat">
@@ -285,8 +339,8 @@ function ManualRecentStrip({ canClear, editingKey, rows, onClearTicket, onDelete
     <section className="seller-manual-recent-block">
       <div className="seller-manual-recent-head">
         <div>
-          <span>Current Ticket Rows</span>
-          <strong>{rows.length > 0 ? `${rows.length} active row(s)` : "No rows entered yet"}</strong>
+          <span>Show</span>
+          <strong>{rows.length > 0 ? `${rows.length} entered number(s)` : "No number entered yet"}</strong>
         </div>
         <div className="seller-manual-recent-actions">
           <small>Edit or delete without leaving this screen.</small>
@@ -329,7 +383,7 @@ function ManualRecentStrip({ canClear, editingKey, rows, onClearTicket, onDelete
         </div>
       ) : (
         <div className="seller-manual-recent-empty">
-          Tap a digit, type quantity, and add rows fast. They appear here instantly.
+          Your entered numbers show here instantly, and you can edit or delete them anytime.
         </div>
       )}
     </section>
@@ -435,7 +489,7 @@ function SellerEntryInfoPanel({
           <strong>{draftTicketId}</strong>
         </div>
         <div className="seller-popup-meta-card">
-          <span>Rows</span>
+          <span>Numbers</span>
           <strong>{previewSummary.rows || 0}</strong>
         </div>
         <div className="seller-popup-meta-card seller-popup-meta-card-wide">
@@ -475,20 +529,78 @@ function SellerEntrySavePanel({
   canClearTicket,
   canSave,
   canUndo,
+  currentDue,
+  customerName,
+  customerPhone,
+  effectivePaidAmount,
+  onCustomerNameChange,
   formatCurrency,
+  onCustomerPhoneChange,
+  onPaidAmountChange,
+  onPaymentModeChange,
   onClearMode,
   onClearTicket,
   onDeleteRow,
   onEditRow,
   onSaveTicket,
   onUndoLast,
+  paidAmount,
+  paymentMode,
   previewSummary,
   recentRows,
   saving,
+  saveBlockMessage,
   editingKey,
 }) {
   const singleAmount = Number(previewSummary.singleQty || 0) * SINGLE_RATE;
   const juriAmount = Number(previewSummary.juriQty || 0) * JURI_RATE;
+  const totalAmount = Number(previewSummary.total || 0);
+  const normalizedPaymentMode = normalizePaymentModeLabel(paymentMode);
+  const dueInputValue = getDueInputValue(normalizedPaymentMode, paidAmount, currentDue, totalAmount);
+  const partialPaymentPending = normalizedPaymentMode === "Partial" && String(paidAmount || "") === "";
+
+  const handlePaymentModeSelect = (nextMode) => {
+    onPaymentModeChange(nextMode);
+
+    if (nextMode === "Paid") {
+      onPaidAmountChange("");
+      return;
+    }
+
+    if (nextMode === "Unpaid") {
+      onPaidAmountChange("0");
+      return;
+    }
+
+    onPaidAmountChange("");
+  };
+
+  const handleDueAmountChange = (value) => {
+    const digits = String(value || "").replace(/[^\d]/g, "");
+
+    if (!digits) {
+      onPaymentModeChange("Partial");
+      onPaidAmountChange("");
+      return;
+    }
+
+    const dueAmount = Math.min(Number(digits), totalAmount);
+
+    if (dueAmount <= 0) {
+      onPaymentModeChange("Paid");
+      onPaidAmountChange("");
+      return;
+    }
+
+    if (dueAmount >= totalAmount) {
+      onPaymentModeChange("Unpaid");
+      onPaidAmountChange("0");
+      return;
+    }
+
+    onPaymentModeChange("Partial");
+    onPaidAmountChange(String(totalAmount - dueAmount));
+  };
 
   return (
     <section className="seller-popup-panel seller-popup-save-panel">
@@ -500,6 +612,93 @@ function SellerEntrySavePanel({
         onDelete={onDeleteRow}
         onEdit={onEditRow}
       />
+
+      <div className="seller-payment-panel">
+        <div className="seller-payment-panel-head">
+          <div>
+            <span>Save Details</span>
+            <strong>Due option, payment status, and optional customer details.</strong>
+          </div>
+          <small>{normalizedPaymentMode}</small>
+        </div>
+
+        <div className="seller-payment-mode-grid" role="group" aria-label="Payment mode">
+          {PAYMENT_MODE_OPTIONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={`seller-payment-mode-btn ${normalizedPaymentMode === option ? "active" : ""}`}
+              onClick={() => handlePaymentModeSelect(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+
+        <div className="seller-payment-field-grid">
+          <label className="seller-entry-field seller-payment-field">
+            <span>Name Optional</span>
+            <input
+              type="text"
+              aria-label="Customer name"
+              placeholder="Walk-in Customer"
+              value={customerName}
+              onChange={(event) => onCustomerNameChange(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+
+          <label className="seller-entry-field seller-payment-field">
+            <span>Phone Optional</span>
+            <input
+              type="tel"
+              inputMode="numeric"
+              aria-label="Customer phone"
+              placeholder="Optional phone"
+              value={customerPhone}
+              onChange={(event) => onCustomerPhoneChange(event.target.value.replace(/[^\d]/g, ""))}
+              autoComplete="off"
+            />
+          </label>
+        </div>
+
+        <div className="seller-payment-bottom-grid">
+          <label className="seller-entry-field seller-payment-field">
+            <span>Due Amount</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label="Due amount"
+              placeholder="0"
+              value={dueInputValue}
+              onChange={(event) => handleDueAmountChange(event.target.value)}
+              readOnly={normalizedPaymentMode !== "Partial"}
+            />
+          </label>
+
+          <div className="seller-payment-summary-grid">
+            <div className="seller-payment-summary-cell">
+              <span>Total</span>
+              <strong>{formatCurrency(totalAmount)}</strong>
+            </div>
+            <div className="seller-payment-summary-cell">
+              <span>Paid</span>
+              <strong>{formatCurrency(effectivePaidAmount || 0)}</strong>
+            </div>
+            <div className="seller-payment-summary-cell">
+              <span>Due</span>
+              <strong>{formatCurrency(currentDue || 0)}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className={`seller-payment-helper ${partialPaymentPending ? "warning" : ""}`}>
+          {partialPaymentPending
+            ? saveBlockMessage
+            : "If name is empty the ticket will save as Walk-in Customer. Phone is optional too."}
+        </div>
+      </div>
 
       <div className="seller-manual-dock-wrap">
         <div className="seller-manual-totals-bar">
@@ -633,6 +832,8 @@ function SuperFastManualTool({
   currentDue,
   currentDate,
   currentDrawLabel,
+  customerName,
+  customerPhone,
   date,
   draftTicketId,
   draft,
@@ -650,12 +851,16 @@ function SuperFastManualTool({
   onChangePanel,
   onClearMode,
   onClearTicket,
+  onCustomerNameChange,
+  onCustomerPhoneChange,
   onDateChange,
   onDeleteRow,
   onDismissSavedTicket,
   onDrawTimeChange,
   onEditRow,
   onNumberChange,
+  onPaidAmountChange,
+  onPaymentModeChange,
   onPrintDraft,
   onPrintSavedTicket,
   onQuantityChange,
@@ -663,9 +868,11 @@ function SuperFastManualTool({
   onSelectDigit,
   onUndoLast,
   maxBookingDate,
+  paidAmount,
   previewSummary,
   quantityRef,
   recentRows,
+  saveBlockMessage,
   savingTicket,
   stats,
   numberRef,
@@ -704,23 +911,25 @@ function SuperFastManualTool({
           <div className={`seller-manual-entry-shell seller-manual-entry-shell-${activeMode}`}>
             <div className="seller-manual-mode-copy">
               <span>{meta.label}</span>
-              <strong>{isEditing ? "Update current row" : "Add rows"}</strong>
+              <strong>{isEditing ? "Update current number" : "Add number"}</strong>
               <small>
                 {activeMode === "juri"
-                  ? "Type a two-digit number and quantity, then add the row."
-                  : "Tap a digit, type quantity, and add the row."}
+                  ? "Type a two-digit number and quantity, then add the number."
+                  : "Tap a digit, type quantity, and add the number."}
               </small>
             </div>
 
             <div className="seller-manual-mode-stats">
-              <ModeStat label="Rows" value={stats.rows} />
+              <ModeStat label="Numbers" value={stats.rows} />
               <ModeStat label="Qty" value={stats.qty} />
               <ModeStat label="Amount" value={formatCurrency(stats.amount)} />
             </div>
 
-            <QuantityShortcutBar
-              onApplyShortcut={(value) => onQuantityChange(value)}
-              onClearQuantity={() => onQuantityChange("")}
+            <EntryMiniPreviewPanel
+              formatCurrency={formatCurrency}
+              hasPreviewRows={Number(previewSummary.rows || 0) > 0}
+              previewLayout={previewLayout}
+              previewSummary={previewSummary}
             />
 
             {activeMode === "juri" ? (
@@ -766,13 +975,13 @@ function SuperFastManualTool({
                   onClick={onAddRow}
                   disabled={!canSubmit}
                 >
-                  {isEditing ? "Update Row" : "Add Row"}
+                  {isEditing ? "Update Number" : "Add Number"}
                 </button>
               </div>
             ) : (
               <div className="seller-manual-house-form">
                 <div className="seller-manual-selected-digit">
-                  <span>Selected Digit</span>
+                  <span>Selected Number</span>
                   <strong>{draft.number || "-"}</strong>
                 </div>
 
@@ -805,7 +1014,7 @@ function SuperFastManualTool({
                     onClick={onAddRow}
                     disabled={!canSubmit}
                   >
-                    {isEditing ? "Update Row" : `Add ${meta.shortLabel}`}
+                    {isEditing ? "Update Number" : "Add Number"}
                   </button>
                 </div>
               </div>
@@ -818,16 +1027,27 @@ function SuperFastManualTool({
             canClearTicket={canClearTicket}
             canSave={canSave}
             canUndo={canUndo}
+            currentDue={currentDue}
+            customerName={customerName}
+            customerPhone={customerPhone}
             editingKey={editingKey}
+            effectivePaidAmount={effectivePaidAmount}
             formatCurrency={formatCurrency}
+            onCustomerNameChange={onCustomerNameChange}
+            onCustomerPhoneChange={onCustomerPhoneChange}
+            onPaidAmountChange={onPaidAmountChange}
+            onPaymentModeChange={onPaymentModeChange}
             onClearMode={onClearMode}
             onClearTicket={onClearTicket}
             onDeleteRow={onDeleteRow}
             onEditRow={onEditRow}
             onSaveTicket={onSaveTicket}
             onUndoLast={onUndoLast}
+            paidAmount={paidAmount}
+            paymentMode={paymentMode}
             previewSummary={previewSummary}
             recentRows={recentRows}
+            saveBlockMessage={saveBlockMessage}
             saving={savingTicket}
           />
         ) : null}
@@ -860,6 +1080,8 @@ export default function SellerFastEntryBoard({
   activeEntryMode,
   bookingDateAdjusted,
   currentDue,
+  customerName,
+  customerPhone,
   date,
   drawOptions,
   drawTime,
@@ -877,16 +1099,21 @@ export default function SellerFastEntryBoard({
   draftTicketId,
   maxBookingDate,
   onActiveEntryModeChange,
+  onCustomerNameChange,
+  onCustomerPhoneChange,
   onDateChange,
   onDismissSavedTicket,
   onDrawTimeChange,
   onFourthChange,
   onJuriTextChange,
+  onPaidAmountChange,
+  onPaymentModeChange,
   onPrintDraft,
   onPrintSavedTicket,
   onReset,
   onSave,
   onThirdChange,
+  paidAmount,
   parsedJuri,
   paymentMode,
   previewItems,
@@ -926,6 +1153,9 @@ export default function SellerFastEntryBoard({
   );
   const previewRows = useMemo(() => buildPreviewRows(previewItems), [previewItems]);
   const hasPreviewRows = previewRows.length > 0;
+  const normalizedPaymentMode = normalizePaymentModeLabel(paymentMode);
+  const partialPaymentPending = normalizedPaymentMode === "Partial" && String(paidAmount || "") === "";
+  const canSaveTicket = hasPreviewRows && !partialPaymentPending;
   const currentModeMeta = getModeMeta(activeEntryMode);
   const activeInputs = modeInputs[activeEntryMode];
   const activeModeStats = useMemo(
@@ -1301,6 +1531,11 @@ export default function SellerFastEntryBoard({
       return;
     }
 
+    if (partialPaymentPending) {
+      showNotice("Enter due amount for Partial, or switch to Paid or Unpaid.", "warning");
+      return;
+    }
+
     try {
       setSavingTicket(true);
       await onSave(draftOverrideRef.current);
@@ -1311,7 +1546,7 @@ export default function SellerFastEntryBoard({
     } finally {
       setSavingTicket(false);
     }
-  }, [hasPreviewRows, onSave, savingTicket]);
+  }, [hasPreviewRows, onSave, partialPaymentPending, savingTicket, showNotice]);
 
   return (
     <div className="seller-entry-shell seller-entry-shell-manual">
@@ -1338,11 +1573,13 @@ export default function SellerFastEntryBoard({
         bookingDateAdjusted={bookingDateAdjusted}
         canClearTicket={hasPreviewRows}
         canPrintDraft={hasPreviewRows}
-        canSave={hasPreviewRows}
+        canSave={canSaveTicket}
         canUndo={historyDepth > 0}
         currentDue={currentDue}
         currentDate={effectiveTicketDate}
         currentDrawLabel={formatDrawTime(drawTime)}
+        customerName={customerName}
+        customerPhone={customerPhone}
         date={date}
         draftTicketId={draftTicketId}
         draft={activeInputs}
@@ -1362,24 +1599,30 @@ export default function SellerFastEntryBoard({
         onChangePanel={handlePanelChange}
         onClearMode={handleResetCurrentMode}
         onClearTicket={handleClearAll}
+        onCustomerNameChange={onCustomerNameChange}
+        onCustomerPhoneChange={onCustomerPhoneChange}
         onDateChange={onDateChange}
         onDeleteRow={handleDeleteRow}
         onDismissSavedTicket={onDismissSavedTicket}
         onDrawTimeChange={onDrawTimeChange}
         onEditRow={handleEditRow}
         onNumberChange={(value) => updateModeInput(activeEntryMode, "number", value)}
+        onPaidAmountChange={onPaidAmountChange}
+        onPaymentModeChange={onPaymentModeChange}
         onPrintDraft={onPrintDraft}
         onPrintSavedTicket={onPrintSavedTicket}
         onQuantityChange={(value) => updateModeInput(activeEntryMode, "quantity", value)}
         onSaveTicket={handleSaveTicket}
         onSelectDigit={handleManualDigitSelect}
         onUndoLast={handleUndoLast}
+        paidAmount={paidAmount}
         previewSummary={previewSummary}
         quantityRef={registerInputRef(activeEntryMode, "quantity")}
         recentRows={recentPreviewRows}
+        saveBlockMessage="Enter due amount before saving as Partial."
         savingTicket={savingTicket}
         stats={activeModeStats}
-        paymentMode={paymentMode}
+        paymentMode={normalizedPaymentMode}
         previewLayout={previewLayout}
         todayString={todayString}
       />

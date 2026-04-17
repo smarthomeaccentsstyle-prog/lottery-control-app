@@ -3,8 +3,17 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import reportWebVitals from "./reportWebVitals";
+import {
+  PANEL_SESSION_KEY,
+  SELLER_LIST_KEY,
+  SELLER_PANEL_STORAGE_KEY,
+} from "./untils/adminStorage";
 
-const STORAGE_KEY = "seller-panel-state-v3";
+const STARTUP_RESET_KEYS = [
+  SELLER_PANEL_STORAGE_KEY,
+  PANEL_SESSION_KEY,
+  SELLER_LIST_KEY,
+];
 
 class StartupErrorBoundary extends React.Component {
   constructor(props) {
@@ -18,7 +27,9 @@ class StartupErrorBoundary extends React.Component {
 
   handleReset = () => {
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      STARTUP_RESET_KEYS.forEach((key) => {
+        localStorage.removeItem(key);
+      });
     } catch {}
 
     window.location.reload();

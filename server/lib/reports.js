@@ -154,6 +154,20 @@ function buildRangeReportMetrics(tickets, results, range, today, sellerUsername 
     return isDateInRange(ticket.date, range, today);
   });
 
+  const getPaymentMode = (ticket) => {
+    const normalized = String(ticket && ticket.paymentMode ? ticket.paymentMode : "").trim().toLowerCase();
+
+    if (normalized === "unpaid") {
+      return "Unpaid";
+    }
+
+    if (normalized.includes("partial")) {
+      return "Partial";
+    }
+
+    return "Paid";
+  };
+
   return {
     sale: filteredTickets.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0),
     collection: filteredTickets.reduce((sum, ticket) => sum + Number(ticket.paidAmount || 0), 0),
@@ -170,9 +184,9 @@ function buildRangeReportMetrics(tickets, results, range, today, sellerUsername 
         getTicketPayoutForResult(ticket, getWinningNumber(results, ticket.date, ticket.drawTime)) > 0
     ).length,
     claimCount: filteredTickets.filter((ticket) => ticket.claimed).length,
-    paidCount: filteredTickets.filter((ticket) => ticket.paymentMode === "Paid").length,
-    partialCount: filteredTickets.filter((ticket) => ticket.paymentMode === "Partial Paid").length,
-    unpaidCount: filteredTickets.filter((ticket) => ticket.paymentMode === "Unpaid").length,
+    paidCount: filteredTickets.filter((ticket) => getPaymentMode(ticket) === "Paid").length,
+    partialCount: filteredTickets.filter((ticket) => getPaymentMode(ticket) === "Partial").length,
+    unpaidCount: filteredTickets.filter((ticket) => getPaymentMode(ticket) === "Unpaid").length,
     averageSale: filteredTickets.length
       ? filteredTickets.reduce((sum, ticket) => sum + Number(ticket.total || 0), 0) / filteredTickets.length
       : 0,

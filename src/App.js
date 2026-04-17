@@ -109,14 +109,29 @@ function buildPreviewSummaryFromItems(items = []) {
   };
 }
 
+function normalizePaymentMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (normalized === "unpaid") {
+    return "Unpaid";
+  }
+
+  if (normalized.includes("partial")) {
+    return "Partial";
+  }
+
+  return "Paid";
+}
+
 function calculateEffectivePaidAmount(total, paymentMode, paidAmount) {
   const numeric = sanitizeNumber(paidAmount);
+  const normalizedMode = normalizePaymentMode(paymentMode);
 
-  if (paymentMode === "Paid") {
+  if (normalizedMode === "Paid") {
     return total;
   }
 
-  if (paymentMode === "Unpaid") {
+  if (normalizedMode === "Unpaid") {
     return 0;
   }
 
@@ -189,7 +204,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     )
   );
   const [editingTicketId, setEditingTicketId] = useState(null);
-  const [paymentMode, setPaymentMode] = useState(persisted.paymentMode || "Paid");
+  const [paymentMode, setPaymentMode] = useState(() => normalizePaymentMode(persisted.paymentMode || "Paid"));
   const [paidAmount, setPaidAmount] = useState(persisted.paidAmount || "");
   const [draftTicketId, setDraftTicketId] = useState(() =>
     persisted.draftTicketId || generateClientTicketId()
@@ -584,10 +599,14 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
         safeLower(ticket.customerName).includes(query) ||
         safeLower(ticket.customerPhone).includes(query);
 
+      const matchesPaymentFilter =
+        ["Paid", "Partial", "Partial Paid", "Unpaid"].includes(ticketFilter) &&
+        normalizePaymentMode(ticket.paymentMode) === normalizePaymentMode(ticketFilter);
+
       const matchesFilter =
         ticketFilter === "ALL" ||
         getTicketStatus(ticket) === ticketFilter ||
-        ticket.paymentMode === ticketFilter ||
+        matchesPaymentFilter ||
         ticket.drawTime === ticketFilter;
 
       return matchesSearch && matchesFilter;
@@ -863,7 +882,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
       customerPhone: String(latest.customerPhone || "").trim(),
       date: latest.effectiveTicketDate,
       drawTime: latest.drawTime,
-      paymentMode: latest.paymentMode,
+      paymentMode: normalizePaymentMode(latest.paymentMode),
       paidAmount: paidAmountForTicket,
       dueAmount: dueAmountForTicket,
       items: itemsToSave,
@@ -1081,8 +1100,8 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
     setCustomerPhone(ticket.customerPhone);
     setDate(getNextValidBookingDate(ticket.date, ticket.drawTime));
     setDrawTime(ticket.drawTime);
-    setPaymentMode(ticket.paymentMode);
-    setPaidAmount(ticket.paymentMode === "Partial Paid" ? String(ticket.paidAmount || "") : "");
+    setPaymentMode(normalizePaymentMode(ticket.paymentMode));
+    setPaidAmount(normalizePaymentMode(ticket.paymentMode) === "Partial" ? String(ticket.paidAmount || "") : "");
     setEditingTicketId(ticket.id);
     setNewTicketEntryMethod("manual");
     setActiveEntryMode(
@@ -1564,7 +1583,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                   </option>
                 ))}
                 <option value="Paid">Paid</option>
-                <option value="Partial Paid">Partial Paid</option>
+                <option value="Partial">Partial</option>
                 <option value="Unpaid">Unpaid</option>
               </select>
             </div>
@@ -1596,7 +1615,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                       </div>
 
                       <p className="saved-line">
-                        Payment: {ticket.paymentMode} | Paid {formatCurrency(ticket.paidAmount)} | Due{" "}
+                        Payment: {normalizePaymentMode(ticket.paymentMode)} | Paid {formatCurrency(ticket.paidAmount)} | Due{" "}
                         {formatCurrency(ticket.dueAmount)}
                       </p>
                       {ticket.cancelled ? (
@@ -1689,7 +1708,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                     <strong>{reportMetrics.paidCount}</strong>
                   </div>
                   <div className="report-row">
-                    <span>Partial Paid</span>
+                    <span>Partial</span>
                     <strong>{reportMetrics.partialCount}</strong>
                   </div>
                   <div className="report-row">
@@ -1869,7 +1888,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
               <div className="mini-summary due-summary-grid">
                 <MiniBox label="Outstanding Due" value={formatCurrency(dueSummary.outstanding)} premium />
                 <MiniBox label="Due Tickets" value={dueSummary.ticketCount} />
-                <MiniBox label="Partial Paid" value={dueSummary.partialCount} />
+                <MiniBox label="Partial" value={dueSummary.partialCount} />
                 <MiniBox label="Due Today" value={dueSummary.todayCount} />
               </div>
 
@@ -1927,7 +1946,7 @@ function SellerPanel({ session, onLogout, sellerSyncToken }) {
                         </div>
                         <div className="due-meta-cell">
                           <span>Mode</span>
-                          <strong>{ticket.paymentMode}</strong>
+                          <strong>{normalizePaymentMode(ticket.paymentMode)}</strong>
                         </div>
                       </div>
 
@@ -2134,7 +2153,7 @@ function normalizeTicket(ticket, index) {
     customerPhone: typeof ticket.customerPhone === "string" ? ticket.customerPhone : "",
     date: typeof ticket.date === "string" ? ticket.date : getTodayString(),
     drawTime: typeof ticket.drawTime === "string" ? ticket.drawTime : "11:00",
-    paymentMode: typeof ticket.paymentMode === "string" ? ticket.paymentMode : "Paid",
+    paymentMode: normalizePaymentMode(ticket.paymentMode),
     paidAmount:
       typeof ticket.paidAmount === "number" ? ticket.paidAmount : sanitizeNumber(String(ticket.paidAmount || "")),
     dueAmount:
@@ -2437,7 +2456,7 @@ function buildTicketPrintMarkup(ticket, layout, options = {}) {
     `Phone: ${ticket.customerPhone || "--"}`,
     `Date: ${ticket.date}`,
     `Draw: ${formatDrawTime(ticket.drawTime)}`,
-    `Payment: ${ticket.paymentMode}`,
+    `Payment: ${normalizePaymentMode(ticket.paymentMode)}`,
     `Total: ${formatCurrency(ticket.total)}`,
     `Paid: ${formatCurrency(ticket.paidAmount)}`,
     `Due: ${formatCurrency(ticket.dueAmount)}`,
@@ -2668,6 +2687,10 @@ function getIntlNumberFormat(locale, options) {
   return globalIntl ? new globalIntl.NumberFormat(locale, options) : null;
 }
 
+function matchesAccessPath(pathname, routePrefix) {
+  return pathname === routePrefix || pathname.startsWith(`${routePrefix}/`);
+}
+
 function getAccessMode() {
   if (typeof window === "undefined" || !window.location) {
     return "seller";
@@ -2675,12 +2698,16 @@ function getAccessMode() {
 
   const pathname = window.location.pathname.toLowerCase();
 
-  if (pathname === "/krishna" || pathname.startsWith("/krishna/")) {
+  if (matchesAccessPath(pathname, "/krishna")) {
     return "master";
   }
 
-  if (pathname.startsWith("/admin")) {
+  if (matchesAccessPath(pathname, "/admin")) {
     return "admin";
+  }
+
+  if (matchesAccessPath(pathname, "/seller")) {
+    return "seller";
   }
 
   return "seller";

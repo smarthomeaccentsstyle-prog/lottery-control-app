@@ -117,12 +117,22 @@
   gap: 16px;
 }
 
+.seller-entry-mini-preview,
+.seller-entry-mini-preview-head,
+.seller-entry-mini-preview-stats,
+.seller-entry-mini-preview-stat,
+.seller-entry-mini-preview-format,
 .seller-live-preview-card,
 .seller-live-preview-head,
 .seller-live-preview-stats,
 .seller-live-preview-stat,
 .seller-live-preview-format,
-.seller-qty-shortcuts,
+.seller-payment-panel,
+.seller-payment-panel-head,
+.seller-payment-mode-grid,
+.seller-payment-field-grid,
+.seller-payment-bottom-grid,
+.seller-payment-summary-grid,
 .seller-popup-panel,
 .seller-popup-copy,
 .seller-popup-control-grid,
@@ -172,6 +182,7 @@
 .seller-manual-juri-form,
 .seller-manual-house-form,
 .seller-manual-house-actions,
+.seller-payment-summary-cell,
 .seller-manual-recent-block,
 .seller-manual-saved-ticket,
 .seller-manual-chip-list,
@@ -288,8 +299,12 @@
 }
 
 .seller-quick-access-btn span,
+.seller-entry-mini-preview-head span,
+.seller-entry-mini-preview-stat span,
 .seller-live-preview-head span,
-.seller-live-preview-stat span {
+.seller-live-preview-stat span,
+.seller-payment-panel-head span,
+.seller-payment-summary-cell span {
   color: var(--seller-manual-accent);
   font-size: 0.7rem;
   font-weight: 800;
@@ -298,33 +313,18 @@
 }
 
 .seller-quick-access-btn strong,
+.seller-entry-mini-preview-head strong,
+.seller-entry-mini-preview-stat strong,
 .seller-live-preview-head strong,
-.seller-live-preview-stat strong {
+.seller-live-preview-stat strong,
+.seller-payment-panel-head strong,
+.seller-payment-summary-cell strong {
   color: var(--seller-entry-text);
 }
 
 .seller-quick-access-btn.active {
   border-color: var(--seller-manual-accent);
   background: var(--seller-manual-accent-soft);
-}
-
-.seller-qty-shortcuts {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.seller-qty-shortcut-btn {
-  min-height: 42px;
-  border: 1px solid rgba(95, 116, 152, 0.28);
-  background: rgba(6, 12, 23, 0.94);
-  color: var(--seller-entry-text);
-  border-radius: 14px;
-  font-size: 0.84rem;
-  font-weight: 800;
-  box-shadow: none;
-}
-
-.seller-qty-clear-btn {
-  border-color: rgba(245, 200, 66, 0.34);
 }
 
 .seller-entry-field {
@@ -348,6 +348,10 @@
 .seller-entry-field input:focus {
   border-color: var(--seller-manual-accent);
   box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+.seller-payment-field input[readonly] {
+  opacity: 0.82;
 }
 
 .seller-manual-digit-pad {
@@ -453,6 +457,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.seller-entry-mini-preview,
 .seller-live-preview-card {
   background:
     radial-gradient(circle at top right, var(--seller-manual-accent-soft), transparent 42%),
@@ -460,11 +465,18 @@
   border: 1px solid rgba(95, 116, 152, 0.28);
 }
 
+.seller-entry-mini-preview {
+  padding: 12px;
+  border-radius: 18px;
+}
+
+.seller-entry-mini-preview-head,
 .seller-live-preview-head {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
 }
 
+.seller-entry-mini-preview-head small,
 .seller-live-preview-head small {
   min-height: 32px;
   padding: 8px 10px;
@@ -476,10 +488,24 @@
   font-weight: 800;
 }
 
+.seller-entry-mini-preview-stats,
 .seller-live-preview-stats {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.seller-entry-mini-preview-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.seller-entry-mini-preview-stat,
+.seller-payment-summary-cell {
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(76, 95, 130, 0.24);
+  background: rgba(4, 10, 20, 0.92);
+}
+
+.seller-entry-mini-preview-format,
 .seller-live-preview-format {
   padding: 12px;
   border-radius: 18px;
@@ -487,12 +513,75 @@
   border: 1px solid rgba(76, 95, 130, 0.24);
 }
 
+.seller-entry-mini-preview-empty,
 .seller-live-preview-empty {
   padding: 14px;
   border-radius: 16px;
   border: 1px dashed rgba(95, 116, 152, 0.34);
   color: var(--seller-entry-soft);
   line-height: 1.55;
+}
+
+.seller-payment-panel {
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(76, 95, 130, 0.24);
+  background: rgba(4, 10, 20, 0.92);
+}
+
+.seller-payment-panel-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.seller-payment-panel-head small {
+  min-height: 32px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(8, 15, 28, 0.96);
+  border: 1px solid rgba(95, 116, 152, 0.28);
+  color: var(--seller-entry-text);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.seller-payment-mode-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.seller-payment-mode-btn {
+  min-height: 44px;
+  border: 1px solid rgba(95, 116, 152, 0.28);
+  background: rgba(6, 12, 23, 0.94);
+  color: var(--seller-entry-text);
+  border-radius: 14px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.seller-payment-mode-btn.active {
+  border-color: var(--seller-manual-accent);
+  background: var(--seller-manual-accent-soft);
+}
+
+.seller-payment-field-grid,
+.seller-payment-bottom-grid {
+  grid-template-columns: 1fr;
+}
+
+.seller-payment-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.seller-payment-helper {
+  color: var(--seller-entry-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.seller-payment-helper.warning {
+  color: #facc15;
 }
 
 .seller-manual-recent-empty {
@@ -553,9 +642,14 @@
   }
 
   .seller-manual-juri-form,
-  .seller-manual-house-actions {
+  .seller-manual-house-actions,
+  .seller-payment-bottom-grid {
     grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr);
     align-items: end;
+  }
+
+  .seller-payment-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .seller-live-preview-stats {
@@ -614,6 +708,7 @@
   }
 
   .seller-qty-shortcuts,
+  .seller-entry-mini-preview-stats,
   .seller-live-preview-stats,
   .seller-popup-meta-grid,
   .seller-popup-control-grid {
@@ -622,6 +717,15 @@
 
   .seller-popup-meta-card-wide {
     grid-column: 1 / -1;
+  }
+
+  .seller-payment-panel-head,
+  .seller-entry-mini-preview-head {
+    grid-template-columns: 1fr;
+  }
+
+  .seller-payment-summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .seller-live-preview-head {
